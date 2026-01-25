@@ -1,22 +1,18 @@
-
-<!-- =========================================================
-External libraries (load order)
-========================================================= -->
-<script src="https://unpkg.com/@barba/core"></script>
-<script src="https://unpkg.com/gsap@3/dist/gsap.min.js"></script>
-<script src="https://unpkg.com/gsap@3/dist/ScrollTrigger.min.js"></script>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swiper@8/swiper-bundle.min.css">
-<script src="https://cdn.jsdelivr.net/npm/swiper@8/swiper-bundle.min.js"></script>
-
-
-
-<script>
 /* =========================================================
-CLEAN BARBA + WIPE + HUD (stable) — UPDATED
-- No scroll jump before wipe
-- Preserves scroll position
-- Freezes ScrollTrigger during transitions (prevents scrub snap)
-- /media => HARD LOAD (no Barba)
+  site.js (JS ONLY)
+  - Do NOT include <script> / <link> tags in this file
+  - Those belong in Webflow (Head/Footer custom code)
+========================================================= */
+
+window.__SITE_JS_LOADED__ = true;
+console.log("[site.js] loaded ✅");
+
+/* =========================================================
+  CLEAN BARBA + WIPE + HUD (stable) — UPDATED
+  - No scroll jump before wipe
+  - Preserves scroll position
+  - Freezes ScrollTrigger during transitions (prevents scrub snap)
+  - /media => HARD LOAD (no Barba)
 ========================================================= */
 (() => {
   /* -----------------------------
@@ -317,7 +313,6 @@ CLEAN BARBA + WIPE + HUD (stable) — UPDATED
   function reinitWebflow() {
     if (!window.Webflow) return;
 
-    // Soft re-init only. destroy() can break parts of Webflow runtime on Barba swaps.
     try { Webflow.ready(); } catch (e) {}
 
     try {
@@ -402,13 +397,12 @@ CLEAN BARBA + WIPE + HUD (stable) — UPDATED
   barba.init({
     preventRunning: true,
 
-    // Hard-load exclusions
     prevent: ({ href }) => {
       if (!href) return false;
       try {
         const url = new URL(href, window.location.origin);
         const path = url.pathname.replace(/\/$/, "");
-        if (path === "/media") return true; // keep /media as hard load
+        if (path === "/media") return true;
       } catch (e) {}
       return false;
     },
@@ -428,7 +422,6 @@ CLEAN BARBA + WIPE + HUD (stable) — UPDATED
         current.style.visibility = "visible";
         current.style.opacity = "1";
 
-        // Cover
         await gsapTo(wipe, {
           y: "0%",
           duration: MOVE_DURATION,
@@ -436,7 +429,6 @@ CLEAN BARBA + WIPE + HUD (stable) — UPDATED
           overwrite: true
         });
 
-        // Now it's safe to hard lock
         lockScrollHardNow();
 
         await delay(HOLD_DURATION);
@@ -456,7 +448,6 @@ CLEAN BARBA + WIPE + HUD (stable) — UPDATED
       },
 
       async after(data) {
-        // Wipe still covers here: we can move scroll to top without showing it
         if (!location.hash) hardScrollTop();
 
         syncWebflowPageIdFromBarba(data);
@@ -471,7 +462,6 @@ CLEAN BARBA + WIPE + HUD (stable) — UPDATED
         unfreezeScrollTriggers();
         try { window.ScrollTrigger?.refresh?.(); } catch (e) {}
 
-        // Reveal
         gsap.killTweensOf(wipe);
         await gsapTo(wipe, {
           y: "-100%",
@@ -526,14 +516,9 @@ CLEAN BARBA + WIPE + HUD (stable) — UPDATED
     try { setHudFixed(); } catch (e) {}
   });
 })();
-</script>
 
-
-<script>
 /* =========================================================
-HARD NAV WIPE (para páginas excluidas de Barba)
-- Wipe-in al click SOLO para URLs específicas
-- Wipe-out al cargar la nueva página (hard load)
+  HARD NAV WIPE (for hard-load pages)
 ========================================================= */
 (() => {
   const HARD_URLS = new Set([
@@ -637,11 +622,9 @@ HARD NAV WIPE (para páginas excluidas de Barba)
     });
   }, true);
 })();
-</script>
 
-<script>
 /* =========================================================
-MULTI-STEP FORMS (Barba-safe) — standalone
+  MULTI-STEP FORMS (Barba-safe) — standalone
 ========================================================= */
 (() => {
   function initMultiStepForms(scope = document){
@@ -808,14 +791,9 @@ MULTI-STEP FORMS (Barba-safe) — standalone
     });
   }
 })();
-</script>
 
-<script>
 /* =========================================================
-MANUAL WEBFLOW FORM SUBMIT (Barba-safe)
-- Fixes Webflow forms that lose AJAX behavior after Barba swaps
-- Only runs on /request-a-screening
-- Uses Webflow endpoint: https://webflow.com/api/v1/form/{siteId}
+  MANUAL WEBFLOW FORM SUBMIT (Barba-safe)
 ========================================================= */
 (() => {
   function isScreeningPage() {
@@ -881,7 +859,6 @@ MANUAL WEBFLOW FORM SUBMIT (Barba-safe)
       return;
     }
 
-    // Webflow endpoint when action is not present
     const endpoint = `https://webflow.com/api/v1/form/${siteId}`;
 
     setUiState(formEl, "sending");
@@ -890,8 +867,6 @@ MANUAL WEBFLOW FORM SUBMIT (Barba-safe)
       const res = await withAllFieldsEnabled(formEl, async () => {
         const fd = new FormData(formEl);
 
-        // Webflow usually includes these hidden fields automatically on hard-load.
-        // We add safe fallbacks if missing.
         if (!fd.get("name")) {
           const formName =
             formEl.getAttribute("data-name") ||
@@ -901,7 +876,6 @@ MANUAL WEBFLOW FORM SUBMIT (Barba-safe)
           fd.append("name", formName);
         }
 
-        // Optional: include the current page URL for backend reference
         if (!fd.get("pageUrl")) fd.append("pageUrl", window.location.href);
 
         return fetch(endpoint, {
@@ -935,11 +909,9 @@ MANUAL WEBFLOW FORM SUBMIT (Barba-safe)
     formEl.dataset.manualWfSubmitBound = "1";
 
     formEl.addEventListener("submit", (e) => {
-      // Always stop native navigation / refresh
       e.preventDefault();
       e.stopPropagation();
 
-      // Let HTML5 validation run
       if (!formEl.checkValidity()) {
         formEl.reportValidity();
         return;
@@ -957,15 +929,9 @@ MANUAL WEBFLOW FORM SUBMIT (Barba-safe)
     barba.hooks.afterEnter(({ next }) => bind(next?.container || document));
   }
 })();
-</script>
 
-
-<script>
 /* =========================================================
-ABOUT CREDITS CRAWL (NO PIN) — EXACT PADDING RULES
-- Start: cuando .about-credits-wrap entra 10% al viewport
-- Start position: layout top = 10rem desde arriba de la máscara
-- End position: layout bottom = (mask bottom - 10rem)
+  ABOUT CREDITS CRAWL (NO PIN) — EXACT PADDING RULES
 ========================================================= */
 (() => {
   if (!window.gsap || !window.ScrollTrigger) return;
@@ -986,7 +952,6 @@ ABOUT CREDITS CRAWL (NO PIN) — EXACT PADDING RULES
       const layout = wrap.querySelector(".about-credits-layout");
       if (!mask || !layout) return;
 
-      // Kill previous instance (Barba safe) — NO revert (evita snap)
       if (wrap._creditsST) {
         try { wrap._creditsST.kill(false); } catch (e) {}
         wrap._creditsST = null;
@@ -1058,665 +1023,16 @@ ABOUT CREDITS CRAWL (NO PIN) — EXACT PADDING RULES
     });
   }
 })();
-</script>
 
-<!-- =========================================================
-TOUR DROPDOWN + CURRENT STOP HIGHLIGHT (Barba-safe)
-========================================================= -->
-<script>
-(() => {
-  function initDropdown(root = document) {
-    const dd = root.querySelector(".tour_dd");
-    if (!dd) return;
-
-    const btn = dd.querySelector(".tour_dd-toggle");
-    const panel = dd.querySelector(".tour_dd-panel");
-    if (!btn || !panel) return;
-
-    if (dd.dataset.bound === "1") return;
-    dd.dataset.bound = "1";
-
-    if (!panel.id) panel.id = "tour-dd-panel-" + Math.random().toString(16).slice(2);
-    btn.setAttribute("aria-controls", panel.id);
-    btn.setAttribute("aria-expanded", "false");
-
-    const open = () => {
-      dd.classList.add("is-open");
-      btn.setAttribute("aria-expanded", "true");
-    };
-
-    const close = () => {
-      dd.classList.remove("is-open");
-      btn.setAttribute("aria-expanded", "false");
-    };
-
-    const toggle = () => dd.classList.contains("is-open") ? close() : open();
-
-    btn.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      toggle();
-    });
-
-    document.addEventListener("click", (e) => {
-      if (!dd.classList.contains("is-open")) return;
-      if (dd.contains(e.target)) return;
-      close();
-    });
-
-    document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") close();
-    });
-
-    panel.addEventListener("click", (e) => {
-      const a = e.target.closest("a");
-      if (!a) return;
-      close();
-    });
-
-    dd.__open = open;
-    dd.__close = close;
-  }
-
-  function closeAllDropdowns() {
-    document.querySelectorAll(".tour_dd").forEach(dd => {
-      dd.classList.remove("is-open");
-      const btn = dd.querySelector(".tour_dd-toggle");
-      if (btn) btn.setAttribute("aria-expanded", "false");
-    });
-  }
-
-  function normalizePath(urlOrPath) {
-    try {
-      const u = new URL(urlOrPath, window.location.origin);
-      let p = u.pathname || "/";
-      if (p.length > 1) p = p.replace(/\/+$/, "");
-      return p;
-    } catch {
-      let p = urlOrPath || "/";
-      if (p.length > 1) p = p.replace(/\/+$/, "");
-      return p;
-    }
-  }
-
-  function markCurrentTourStop(root = document) {
-    const currentPath = normalizePath(window.location.href);
-
-    root.querySelectorAll(".tour-stop-link").forEach(a => {
-      const linkPath = normalizePath(a.href);
-      const isCurrent = linkPath === currentPath;
-
-      a.classList.toggle("is-current", isCurrent);
-
-      if (isCurrent) {
-        a.setAttribute("aria-current", "page");
-        a.setAttribute("aria-disabled", "true");
-        a.setAttribute("tabindex", "-1");
-      } else {
-        a.removeAttribute("aria-current");
-        a.removeAttribute("aria-disabled");
-        a.removeAttribute("tabindex");
-      }
-    });
-  }
-
-  document.addEventListener("click", (e) => {
-    const a = e.target.closest(".tour-stop-link");
-    if (!a) return;
-
-    const currentPath = normalizePath(window.location.href);
-    const linkPath = normalizePath(a.href);
-
-    if (linkPath === currentPath) {
-      e.preventDefault();
-      e.stopPropagation();
-      closeAllDropdowns();
-    }
-  }, true);
-
-  document.addEventListener("DOMContentLoaded", () => {
-    initDropdown(document);
-    markCurrentTourStop(document);
-  });
-
-  if (window.barba) {
-    barba.hooks.beforeLeave(() => closeAllDropdowns());
-
-    barba.hooks.afterEnter(({ next }) => {
-      const container = next?.container || document;
-      initDropdown(container);
-      markCurrentTourStop(document);
-      markCurrentTourStop(container);
-      closeAllDropdowns();
-    });
-  }
-
-  console.log("[TourDropdown] init ✅");
-})();
-</script>
-
-<!-- =========================================================
-PERSISTENT AUDIO + LOTTIE SYNC (Barba-safe)
-========================================================= -->
-<script>
-(() => {
-  const audio = document.getElementById("bg-audio");
-  if (!audio) {
-    console.warn("[Audio] #bg-audio not found");
-    return;
-  }
-
-  const STORAGE_KEY = "bg-audio-playing";
-  const TARGET_VOL = 0.6;
-
-  function fadeVolume(el, to, ms) {
-    const from = el.volume;
-    const steps = 30;
-    let i = 0;
-    const tick = ms / steps;
-
-    const iv = setInterval(() => {
-      i++;
-      el.volume = from + (to - from) * (i / steps);
-      if (i >= steps) clearInterval(iv);
-    }, tick);
-  }
-
-  function getLottieInstance() {
-    try {
-      const wf = Webflow?.require?.("lottie");
-      if (!wf?.lottie) return null;
-
-      const el = document.getElementById("audioLottie");
-      if (!el) return null;
-
-      const regs = wf.lottie.getRegisteredAnimations?.() || [];
-      return regs.find(a => a.wrapper === el) || null;
-    } catch {
-      return null;
-    }
-  }
-
-  function setLottieOpacity(on) {
-  const el = document.getElementById("audioLottie");
-  if (!el) return;
-
-  const to = on ? 1 : 0.35;          // ✅ ajusta aquí
-  const ms = on ? 250 : 250;
-
-  // Si existe GSAP, lo usamos para suavidad
-  if (window.gsap) {
-    gsap.to(el, { opacity: to, duration: ms / 1000, overwrite: true, ease: "power2.out" });
-  } else {
-    el.style.transition = `opacity ${ms}ms ease`;
-    el.style.opacity = String(to);
-  }
-}
-
-
-function lottieOff() {
-  const inst = getLottieInstance();
-  if (!inst) return;
-  inst.loop = false;
-  inst.stop();
-  inst.goToAndStop(0, true);
-
-  setLottieOpacity(false); // ✅ opacidad baja
-}
-
-
-function lottieOnLoop() {
-  const inst = getLottieInstance();
-  if (!inst) return;
-  inst.loop = true;
-  inst.play();
-
-  setLottieOpacity(true); // ✅ opacidad 100%
-}
-
-
-  function syncLottie() {
-    if (audio.paused) lottieOff();
-    else lottieOnLoop();
-  }
-
-  const saved = localStorage.getItem(STORAGE_KEY);
-  if (saved === "true") {
-    audio.volume = 0;
-    audio.play().catch(() => {});
-    fadeVolume(audio, TARGET_VOL, 900);
-  }
-
-  setTimeout(syncLottie, 400);
-
-  function toggleAudio() {
-    if (audio.paused) {
-      audio.volume = 0;
-      audio.play().catch(() => {});
-      fadeVolume(audio, TARGET_VOL, 900);
-      localStorage.setItem(STORAGE_KEY, "true");
-      lottieOnLoop();
-    } else {
-      fadeVolume(audio, 0, 600);
-      setTimeout(() => audio.pause(), 650);
-      localStorage.setItem(STORAGE_KEY, "false");
-      lottieOff();
-    }
-  }
-
-  document.addEventListener("click", (e) => {
-    const btn = e.target.closest(".audio-toggle");
-    if (!btn) return;
-    e.preventDefault();
-    toggleAudio();
-  });
-
-  if (window.barba) {
-    barba.hooks.after(() => setTimeout(syncLottie, 350));
-  }
-
-  console.log("[Audio] init ✅");
-})();
-</script>
-
-<!-- =========================================================
-GSAP SCROLL ENGINE (ONE SINGLE MOTOR)
-- killAll() en afterLeave (no antes) para que NO haya snap visible
-========================================================= -->
-<script>
-(() => {
-  if (!window.gsap || !window.ScrollTrigger) {
-    console.warn("[GSAPEngine] GSAP/ScrollTrigger not found");
-    return;
-  }
-
-  gsap.registerPlugin(ScrollTrigger);
-
-  const ST_DEFAULTS = {
-    start: "top 65%",
-    end: "top 25%"
-  };
-
-  let timelines = [];
-
-  function killAll() {
-    timelines.forEach(tl => {
-      try { tl.scrollTrigger?.kill?.(); } catch {}
-      try { tl.kill?.(); } catch {}
-    });
-    timelines = [];
-  }
-
-  function splitIntoWords(el, key = "splitWordsReady") {
-    if (el.dataset[key] === "1") return el.querySelectorAll(".gsap-word");
-
-    const text = (el.textContent || "").trim();
-    if (!text) return [];
-
-    const words = text.split(/\s+/).filter(Boolean);
-    el.innerHTML = words
-      .map(w => `<span class="gsap-word" style="display:inline-block;">${w}</span>`)
-      .join(" ");
-
-    el.dataset[key] = "1";
-    return el.querySelectorAll(".gsap-word");
-  }
-
-  function splitIntoLines(el) {
-    if (el.dataset.splitLinesReady === "1") return el.querySelectorAll(".gsap-line");
-
-    const originalText = (el.textContent || "").trim();
-    if (!originalText) return [];
-
-    const words = originalText.split(/\s+/).filter(Boolean);
-
-    el.innerHTML = "";
-    const frag = document.createDocumentFragment();
-
-    words.forEach((w, i) => {
-      const s = document.createElement("span");
-      s.className = "gsap-word-measure";
-      s.style.display = "inline-block";
-      s.textContent = w;
-      frag.appendChild(s);
-      if (i < words.length - 1) frag.appendChild(document.createTextNode(" "));
-    });
-
-    el.appendChild(frag);
-
-    const wordSpans = Array.from(el.querySelectorAll(".gsap-word-measure"));
-    if (!wordSpans.length) return [];
-
-    const lines = [];
-    let currentTop = null;
-    let currentLineWords = [];
-
-    wordSpans.forEach(span => {
-      const top = span.offsetTop;
-      if (currentTop === null) currentTop = top;
-
-      if (top !== currentTop) {
-        lines.push(currentLineWords);
-        currentLineWords = [];
-        currentTop = top;
-      }
-      currentLineWords.push(span.textContent);
-    });
-    if (currentLineWords.length) lines.push(currentLineWords);
-
-    el.innerHTML = lines
-      .map(wordsArr => `<span class="gsap-line" style="display:block;">${wordsArr.join(" ")}</span>`)
-      .join("");
-
-    el.dataset.splitLinesReady = "1";
-    return el.querySelectorAll(".gsap-line");
-  }
-
-  function makeScrubTL(triggerEl, start, end) {
-    return gsap.timeline({
-      scrollTrigger: {
-        trigger: triggerEl,
-        start: start || ST_DEFAULTS.start,
-        end: end || ST_DEFAULTS.end,
-        scrub: true,
-        invalidateOnRefresh: true
-      }
-    });
-  }
-
-  function initHeroParallax(container = document) {
-    const hero = container.querySelector(".hero-main");
-    if (!hero) return;
-
-    const bg = hero.querySelector(".hero-bg");
-    const card = hero.querySelector(".u-hero-card-wrap");
-    if (!bg || !card) return;
-
-    gsap.set([bg, card], { yPercent: 0 });
-
-    const tl = gsap.timeline({
-      scrollTrigger: {
-        trigger: hero,
-        start: "top top",
-        end: "bottom top",
-        scrub: true,
-        invalidateOnRefresh: true
-      }
-    });
-
-    tl.to(bg,   { yPercent: -15, ease: "none" }, 0);
-    tl.to(card, { yPercent: -40, ease: "none" }, 0);
-
-    timelines.push(tl);
-  }
-
-  function initAboutIntro(container = document) {
-    const targets = container.querySelectorAll('[data-gsap="about-intro"]');
-    if (!targets.length) return;
-
-    targets.forEach(el => {
-      if (el.dataset.aboutIntroInited === "1") return;
-      el.dataset.aboutIntroInited = "1";
-
-      const words = splitIntoWords(el, "aboutIntroSplitReady");
-      if (!words.length) return;
-
-      gsap.set(words, { opacity: 0.2 });
-
-      const tl = gsap.timeline({
-        scrollTrigger: {
-          trigger: el,
-          start: "top 85%",
-          end: "top 15%",
-          scrub: true,
-          invalidateOnRefresh: true
-        }
-      });
-
-      tl.to(words, {
-        opacity: 1,
-        duration: 0.25,
-        ease: "none",
-        stagger: 0.02
-      }, 0);
-
-      timelines.push(tl);
-    });
-  }
-
-  function initTitleBlocks(container = document) {
-    const blocks = container.querySelectorAll('[data-gsap="title-block"]');
-    if (!blocks.length) return;
-
-    blocks.forEach(block => {
-      if (block.dataset.titleBlockInited === "1") return;
-      block.dataset.titleBlockInited = "1";
-
-      const eyebrow = block.querySelector(".text-eyebrow");
-      const display = block.querySelector(".text-display-2");
-      const dotted  = block.querySelector(".dotted-line");
-
-      const tl = makeScrubTL(block, "top 65%", "top 25%");
-
-      if (eyebrow) {
-        const words = splitIntoWords(eyebrow, "titleEyebrowSplitReady");
-        if (words.length) {
-          gsap.set(words, { opacity: 0 });
-          tl.to(words, { opacity: 1, ease: "none", stagger: 0.05 }, 0);
-        }
-      }
-
-      if (display) {
-        const words = splitIntoWords(display, "titleDisplaySplitReady");
-        if (words.length) {
-          gsap.set(words, { opacity: 0 });
-          tl.to(words, { opacity: 1, ease: "none", stagger: 0.05 }, 0.05);
-        }
-      }
-
-      if (dotted) {
-        gsap.set(dotted, { opacity: 0 });
-        tl.to(dotted, { opacity: 1, ease: "none" }, 0.10);
-      }
-
-      timelines.push(tl);
-    });
-  }
-
-  function initGridCols(container = document) {
-    const grids = container.querySelectorAll('[data-gsap="grid-cols"]');
-    if (!grids.length) return;
-
-    grids.forEach(grid => {
-      if (grid.dataset.gridInited === "1") return;
-      grid.dataset.gridInited = "1";
-
-      let cols = Array.from(grid.children).filter(el => el.classList?.contains("u-grid-col"));
-      if (!cols.length) cols = Array.from(grid.querySelectorAll(".u-grid-col"));
-      if (!cols.length) return;
-
-      gsap.set(cols, { opacity: 0 });
-
-      const tl = makeScrubTL(grid, "top 65%", "top 25%");
-      tl.to(cols, { opacity: 1, ease: "none", stagger: 0.15 }, 0);
-
-      timelines.push(tl);
-    });
-  }
-
-  function initLinesStagger(container = document) {
-    const blocks = container.querySelectorAll('[data-gsap="lines-stagger"]');
-    if (!blocks.length) return;
-
-    blocks.forEach(el => {
-      if (el.dataset.linesInited === "1") return;
-      el.dataset.linesInited = "1";
-
-      const lines = splitIntoLines(el);
-      if (!lines.length) return;
-
-      gsap.set(lines, { opacity: 0 });
-
-      const tl = makeScrubTL(el);
-      tl.to(lines, {
-        opacity: 1,
-        duration: 0.25,
-        ease: "none",
-        stagger: 0.05
-      }, 0);
-
-      timelines.push(tl);
-    });
-  }
-
-  function initFadeSimple(container = document) {
-    const blocks = container.querySelectorAll('[data-gsap="fade-simple"]');
-    if (!blocks.length) return;
-
-    blocks.forEach(el => {
-      if (el.dataset.fadeInited === "1") return;
-      el.dataset.fadeInited = "1";
-
-      gsap.set(el, { opacity: 0 });
-
-      const tl = makeScrubTL(el);
-      tl.to(el, { opacity: 1, duration: 0.25, ease: "none" }, 0);
-
-      timelines.push(tl);
-    });
-  }
-
-  function initAll(container = document) {
-    initHeroParallax(container);
-    initAboutIntro(container);
-    initTitleBlocks(container);
-    initGridCols(container);
-    initLinesStagger(container);
-    initFadeSimple(container);
-  }
-
-  document.addEventListener("DOMContentLoaded", () => {
-    killAll();
-    initAll(document);
-    ScrollTrigger.refresh();
-    console.log("[GSAPEngine] init (DOMContentLoaded) ✅");
-  });
-
-  if (window.barba) {
-    // ✅ NO matar antes (evita snap visible). Matar después.
-    barba.hooks.afterLeave(() => killAll());
-
-    barba.hooks.afterEnter(({ next }) => {
-      const container = next?.container || document;
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          initAll(container);
-          ScrollTrigger.refresh();
-          console.log("[GSAPEngine] init (afterEnter) ✅");
-        });
-      });
-    });
-  }
-})();
-</script>
-
-<script>
 /* =========================================================
-FILM GRAIN OVERLAY (Barba-safe, no deps)
-- Mantiene un overlay fijo fuera de Barba
-- No se reinicializa por navegación (0 flicker)
+  Footer links: disable current link
 ========================================================= */
 (() => {
-  const overlay = document.querySelector(".grain-overlay");
-  if (!overlay) {
-    console.warn("[Grain] .grain-overlay not found");
-    return;
-  }
-
-  // Settings
-  const FPS = 18;            // 12–24 se ve bien
-  const SIZE = 220;          // canvas tile size
-  const CONTRAST = 38;       // 10–40
-  const ALPHA = 110;         // 0–255
-  const USE_COLORED = false; // true = RGB grain, false = gris
-
-  let rafId = null;
-  let last = 0;
-
-  const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  canvas.width = SIZE;
-  canvas.height = SIZE;
-
-  function drawNoise() {
-    const img = ctx.createImageData(SIZE, SIZE);
-    const d = img.data;
-
-    for (let i = 0; i < d.length; i += 4) {
-      const v = (Math.random() * 255) | 0;
-
-      if (USE_COLORED) {
-        d[i]     = v;
-        d[i + 1] = (Math.random() * 255) | 0;
-        d[i + 2] = (Math.random() * 255) | 0;
-      } else {
-        d[i] = d[i + 1] = d[i + 2] = v;
-      }
-
-      const a = Math.max(0, Math.min(255, ALPHA + ((v - 128) * CONTRAST) / 128));
-      d[i + 3] = a;
-    }
-
-    ctx.putImageData(img, 0, 0);
-    overlay.style.backgroundImage = `url(${canvas.toDataURL("image/png")})`;
-    overlay.style.backgroundRepeat = "repeat";
-  }
-
-  function loop(t) {
-    if (t - last >= 1000 / FPS) {
-      last = t;
-      drawNoise();
-    }
-    rafId = requestAnimationFrame(loop);
-  }
-
-  function start() {
-    if (rafId) return;
-    rafId = requestAnimationFrame(loop);
-  }
-
-  function stop() {
-    if (!rafId) return;
-    cancelAnimationFrame(rafId);
-    rafId = null;
-  }
-
-  start();
-
-  if (window.barba) {
-    barba.hooks.afterEnter(() => {
-      start();
-    });
-  }
-
-  document.addEventListener("visibilitychange", () => {
-    if (document.hidden) stop();
-    else start();
-  });
-
-  console.log("[Grain] init ✅");
-})();
-</script>
-
-<script>
-(() => {
-  // ✅ SOLO estos links se pueden desactivar (cambia el selector a tu gusto)
   const NAV_SELECTOR = ".footer_link";
 
   function normalize(url) {
     const u = new URL(url, location.origin);
     let p = u.pathname.replace(/\/+$/, "") || "/";
-    // compara solo path + search (sin hash) para no romper anchors
     return p + u.search;
   }
 
@@ -1724,7 +1040,6 @@ FILM GRAIN OVERLAY (Barba-safe, no deps)
     const current = normalize(location.href);
 
     scope.querySelectorAll(NAV_SELECTOR).forEach(a => {
-      // seguridad extra: nunca tocar lightboxes aunque tengan esas clases por accidente
       if (a.classList.contains("w-lightbox") || a.closest(".w-lightbox")) return;
 
       const link = normalize(a.href);
@@ -1755,12 +1070,7 @@ FILM GRAIN OVERLAY (Barba-safe, no deps)
   if (window.barba) {
     barba.hooks.afterEnter(({ next }) => {
       disableCurrentNavLinks(next?.container || document);
-      // por si el nav está fuera del container
       disableCurrentNavLinks(document);
     });
   }
 })();
-</script>
-
-console.log("[site.js] loaded ✅");
-
