@@ -1,18 +1,12 @@
 /* =========================================================
-  site.js (JS ONLY)
-  - Do NOT include <script> / <link> tags in this file
-  - Those belong in Webflow (Head/Footer custom code)
-========================================================= */
-
-window.__SITE_JS_LOADED__ = true;
-console.log("[site.js] loaded ✅");
-
-/* =========================================================
-  CLEAN BARBA + WIPE + HUD (stable) — UPDATED
+  CODED BIAS — CORE (GitHub)
+  - Barba + Wipe + HUD (stable)
   - No scroll jump before wipe
   - Preserves scroll position
   - Freezes ScrollTrigger during transitions (prevents scrub snap)
   - /media => HARD LOAD (no Barba)
+  - Exposes window.Site API for Hotfix layer (Webflow)
+  - English comments only (always)
 ========================================================= */
 (() => {
   /* -----------------------------
@@ -26,14 +20,10 @@ console.log("[site.js] loaded ✅");
   ----------------------------- */
   function qs(sel, root = document) { return root.querySelector(sel); }
   function numberWithZero(num) { return num < 10 ? "0" + num : String(num); }
-
   function gsapTo(target, vars) {
     return new Promise(resolve => gsap.to(target, { ...vars, onComplete: resolve }));
   }
-
-  function delay(seconds) {
-    return new Promise(resolve => setTimeout(resolve, seconds * 1000));
-  }
+  function delay(seconds) { return new Promise(resolve => setTimeout(resolve, seconds * 1000)); }
 
   function hardScrollTop() {
     try {
@@ -289,7 +279,6 @@ console.log("[site.js] loaded ✅");
   gsap.set(wipe, { y: "100%", autoAlpha: 1, display: "block" });
 
   const HUD_FIXED_TEXT = "CODED BIAS WORLD TOUR";
-
   function setHudFixed() {
     if (cityEl) cityEl.textContent = HUD_FIXED_TEXT;
     if (countryEl) { countryEl.textContent = ""; countryEl.style.display = "none"; }
@@ -313,6 +302,7 @@ console.log("[site.js] loaded ✅");
   function reinitWebflow() {
     if (!window.Webflow) return;
 
+    // Soft re-init only. destroy() can break parts of Webflow runtime on Barba swaps.
     try { Webflow.ready(); } catch (e) {}
 
     try {
@@ -397,12 +387,13 @@ console.log("[site.js] loaded ✅");
   barba.init({
     preventRunning: true,
 
+    // Hard-load exclusions
     prevent: ({ href }) => {
       if (!href) return false;
       try {
         const url = new URL(href, window.location.origin);
         const path = url.pathname.replace(/\/$/, "");
-        if (path === "/media") return true;
+        if (path === "/media") return true; // keep /media as hard load
       } catch (e) {}
       return false;
     },
@@ -416,12 +407,16 @@ console.log("[site.js] loaded ✅");
         setHudFixed();
         gsap.killTweensOf(wipe);
 
+        // Prevent scrub snap
         freezeScrollTriggers();
+
+        // Prevent scroll jump (no overflow hidden yet)
         lockScrollSoft();
 
         current.style.visibility = "visible";
         current.style.opacity = "1";
 
+        // Cover
         await gsapTo(wipe, {
           y: "0%",
           duration: MOVE_DURATION,
@@ -429,6 +424,7 @@ console.log("[site.js] loaded ✅");
           overwrite: true
         });
 
+        // Now it's safe to hard lock
         lockScrollHardNow();
 
         await delay(HOLD_DURATION);
@@ -448,6 +444,7 @@ console.log("[site.js] loaded ✅");
       },
 
       async after(data) {
+        // Wipe still covers here: we can move scroll to top without showing it
         if (!location.hash) hardScrollTop();
 
         syncWebflowPageIdFromBarba(data);
@@ -459,9 +456,11 @@ console.log("[site.js] loaded ✅");
         initGallerySwipers(data?.next?.container || document);
         hideSectionsIfCollectionEmpty(data?.next?.container || document);
 
+        // Re-enable ScrollTrigger on the new page
         unfreezeScrollTriggers();
         try { window.ScrollTrigger?.refresh?.(); } catch (e) {}
 
+        // Reveal
         gsap.killTweensOf(wipe);
         await gsapTo(wipe, {
           y: "-100%",
@@ -472,8 +471,10 @@ console.log("[site.js] loaded ✅");
 
         gsap.set(wipe, { y: "100%" });
 
+        // Release any scroll locks
         unlockScrollAll();
 
+        // Anchors (if any)
         if (location.hash) forceAnchor();
       }
     }]
@@ -496,7 +497,8 @@ console.log("[site.js] loaded ✅");
 
     applyMediaTypeFromUrl({ scope: document });
 
-    console.log("[Barba/Wipe] init ✅");
+    console.log("[Core] Barba/Wipe init ✅");
+    window.__SITE_JS_LOADED__ = true;
   });
 
   /* -----------------------------
@@ -515,562 +517,18 @@ console.log("[site.js] loaded ✅");
     try { gsap.set(wipe, { y: "100%", autoAlpha: 1, display: "block" }); } catch (e) {}
     try { setHudFixed(); } catch (e) {}
   });
-})();
 
-/* =========================================================
-  HARD NAV WIPE (for hard-load pages)
-========================================================= */
-(() => {
-  const HARD_URLS = new Set([
-    "/media?stop=paris",
-    "/media?stop=paris#video",
-    "/media?stop=taipei",
-    "/media?stop=taipei#video",
-    "/media?stop=kigali",
-    "/media?stop=kigali#video",
-    "/media?stop=oxford-ms",
-    "/media?stop=oxford-ms#video",
-    "/media?stop=oxford-uk",
-    "/media?stop=oxford-uk#video",
-    "/media?stop=nairobi",
-    "/media?stop=nairobi#video",
-    "/media?type=Local%20voices"
-  ]);
-
-  function makeKeyFromUrl(u) {
-    const path = (u.pathname || "").replace(/\/+$/, "") || "/";
-    return path + (u.search || "") + (u.hash || "");
-  }
-
-  function wipeOutIfPending() {
-    const wipe = document.querySelector(".page-wipe");
-    if (!wipe || !window.gsap) return;
-
-    const html = document.documentElement;
-
-    let pending = false;
-    try { pending = sessionStorage.getItem("hardWipePending") === "1"; } catch(e) {}
-    if (!pending && !html.classList.contains("is-hard-wipe-pending")) return;
-
-    try { sessionStorage.removeItem("hardWipePending"); } catch(e) {}
-    html.classList.remove("is-hard-wipe-pending");
-
-    gsap.killTweensOf(wipe);
-    gsap.set(wipe, { y: "0%", autoAlpha: 1, display: "block" });
-
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        gsap.to(wipe, {
-          y: "-100%",
-          duration: 1.05,
-          ease: "power4.inOut",
-          overwrite: true,
-          onComplete: () => gsap.set(wipe, { y: "100%" })
-        });
-      });
-    });
-  }
-
-  document.addEventListener("DOMContentLoaded", wipeOutIfPending);
-
-  document.addEventListener("click", (e) => {
-    const a = e.target.closest("a");
-    if (!a) return;
-
-    if (a.hasAttribute("download")) return;
-    if (a.target && a.target !== "_self") return;
-    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-
-    const hrefAttr = a.getAttribute("href");
-    if (!hrefAttr || hrefAttr.startsWith("#")) return;
-
-    let url;
-    try { url = new URL(a.href, window.location.origin); } catch { return; }
-    if (url.origin !== window.location.origin) return;
-
-    const key = makeKeyFromUrl(url);
-    const shouldHardWipe = HARD_URLS.has(key);
-    const attrForced = (a.getAttribute("data-wipe-hard") === "1");
-
-    if (!shouldHardWipe && !attrForced) return;
-
-    const currentKey = makeKeyFromUrl(new URL(window.location.href));
-    if (key === currentKey) return;
-
-    e.preventDefault();
-    e.stopPropagation();
-
-    const wipe = document.querySelector(".page-wipe");
-    if (!wipe || !window.gsap) {
-      window.location.href = url.href;
-      return;
-    }
-
-    gsap.killTweensOf(wipe);
-    gsap.set(wipe, { y: "100%", autoAlpha: 1, display: "block" });
-
-    gsap.to(wipe, {
-      y: "0%",
-      duration: 1.05,
-      ease: "power4.inOut",
-      overwrite: true,
-      onComplete: () => {
-        try { sessionStorage.setItem("hardWipePending", "1"); } catch(e) {}
-        document.documentElement.classList.add("is-hard-wipe-pending");
-        window.location.href = url.href;
-      }
-    });
-  }, true);
-})();
-
-/* =========================================================
-  MULTI-STEP FORMS (Barba-safe) — standalone
-========================================================= */
-(() => {
-  function initMultiStepForms(scope = document){
-    const root = scope && scope.querySelector ? scope : document;
-
-    root.querySelectorAll("form").forEach((formEl) => {
-      const steps = Array.from(formEl.querySelectorAll(".form-step"));
-      if (!steps.length) return;
-
-      if (formEl.dataset.msInit === "1") return;
-      formEl.dataset.msInit = "1";
-
-      const nextBtns = Array.from(formEl.querySelectorAll(".btn-next-step"));
-      const prevBtns = Array.from(formEl.querySelectorAll(".btn-prev-step"));
-
-      const progressText = formEl.querySelector(".form-progress-text") || document.querySelector(".form-progress-text");
-      const progressBar  = formEl.querySelector(".form-progress-bar")  || document.querySelector(".form-progress-bar");
-
-      const TOTAL = steps.length;
-      let current = steps.findIndex(s => s.classList.contains("is-active"));
-      if (current < 0) current = 0;
-
-      function getFields(stepEl){
-        return Array.from(stepEl.querySelectorAll("input, select, textarea"));
-      }
-
-      function setDisabledForInactiveSteps(activeIndex){
-        steps.forEach((stepEl, idx) => {
-          const isActive = idx === activeIndex;
-
-          getFields(stepEl).forEach(field => {
-            const tag = field.tagName.toLowerCase();
-            const type = (field.getAttribute("type") || "").toLowerCase();
-            if (tag === "button" || type === "submit" || type === "button") return;
-            field.disabled = !isActive;
-          });
-        });
-      }
-
-      function initConditionalFields(){
-        const triggers = Array.from(formEl.querySelectorAll(".js-trigger-yes"));
-        if (!triggers.length) return;
-
-        triggers.forEach(select => {
-          const wrapper = formEl.querySelector(".js-conditional-field");
-          if (!wrapper) return;
-
-          const dependentFields = Array.from(wrapper.querySelectorAll("input, select, textarea"));
-
-          function setWrapperVisible(show){
-            wrapper.style.display = show ? "block" : "none";
-
-            dependentFields.forEach(f => {
-              const tag = f.tagName.toLowerCase();
-              const type = (f.getAttribute("type") || "").toLowerCase();
-              if (tag === "button" || type === "submit" || type === "button") return;
-
-              f.disabled = !show;
-              if (!show) {
-                if (type === "checkbox" || type === "radio") f.checked = false;
-                else f.value = "";
-              }
-            });
-          }
-
-          function update(){
-            const val = (select.value || "").trim().toLowerCase();
-            setWrapperVisible(val === "yes");
-          }
-
-          if (!select.dataset.condBound) {
-            select.addEventListener("change", update);
-            select.dataset.condBound = "1";
-          }
-
-          update();
-        });
-      }
-
-      function setStep(i){
-        const idx = Math.max(0, Math.min(i, TOTAL - 1));
-
-        steps.forEach((s, n) => s.classList.toggle("is-active", n === idx));
-        setDisabledForInactiveSteps(idx);
-
-        if (progressText) progressText.textContent = `Step ${idx + 1} of ${TOTAL}`;
-        if (progressBar)  progressBar.style.width = `${((idx + 1) / TOTAL) * 100}%`;
-
-        current = idx;
-        initConditionalFields();
-      }
-
-      function validateStep(idx){
-        const stepEl = steps[idx];
-        const fields = getFields(stepEl).filter(f => !f.disabled);
-
-        for (const field of fields){
-          if (!field.checkValidity()){
-            field.reportValidity();
-            return false;
-          }
-        }
-        return true;
-      }
-
-      function wireSubmitGuard(){
-        if (formEl.dataset.submitGuard === "1") return;
-        formEl.dataset.submitGuard = "1";
-
-        formEl.addEventListener("submit", (e) => {
-          steps.forEach(step => getFields(step).forEach(f => (f.disabled = false)));
-
-          if (!formEl.checkValidity()){
-            e.preventDefault();
-
-            const firstInvalid = formEl.querySelector(":invalid");
-            if (firstInvalid){
-              const stepOfInvalid = steps.findIndex(step => step.contains(firstInvalid));
-              if (stepOfInvalid >= 0) setStep(stepOfInvalid);
-
-              firstInvalid.reportValidity();
-              firstInvalid.scrollIntoView({ behavior: "smooth", block: "center" });
-              firstInvalid.focus({ preventScroll: true });
-            }
-
-            setDisabledForInactiveSteps(current);
-          }
-        }, true);
-      }
-
-      nextBtns.forEach(btn=>{
-        btn.addEventListener("click", (e)=>{
-          e.preventDefault();
-          if (!validateStep(current)) return;
-          setStep(current + 1);
-          formEl.scrollIntoView({ behavior: "smooth", block: "start" });
-        });
-      });
-
-      prevBtns.forEach(btn=>{
-        btn.addEventListener("click", (e)=>{
-          e.preventDefault();
-          setStep(current - 1);
-          formEl.scrollIntoView({ behavior: "smooth", block: "start" });
-        });
-      });
-
-      setStep(current);
-      wireSubmitGuard();
-      initConditionalFields();
-    });
-  }
-
-  document.addEventListener("DOMContentLoaded", () => {
-    initMultiStepForms(document);
-    console.log("[MultiStep] init (DOMContentLoaded) ✅");
-  });
-
-  if (window.barba) {
-    barba.hooks.afterEnter(({ next }) => {
-      const container = next?.container || document;
-      initMultiStepForms(container);
-      console.log("[MultiStep] init (afterEnter) ✅");
-    });
-  }
-})();
-
-/* =========================================================
-  MANUAL WEBFLOW FORM SUBMIT (Barba-safe)
-========================================================= */
-(() => {
-  function isScreeningPage() {
-    return location.pathname.replace(/\/$/, "") === "/request-a-screening";
-  }
-
-  function getSiteId() {
-    return document.documentElement.getAttribute("data-wf-site") || "";
-  }
-
-  function getFormEl(scope = document) {
-    const root = scope && scope.querySelector ? scope : document;
-    return root.querySelector("form");
-  }
-
-  function getWebflowBlocks(formEl) {
-    const wrap = formEl.closest(".w-form") || formEl.parentElement;
-    const done = wrap ? wrap.querySelector(".w-form-done") : null;
-    const fail = wrap ? wrap.querySelector(".w-form-fail") : null;
-    return { wrap, done, fail };
-  }
-
-  function setUiState(formEl, state) {
-    const { done, fail } = getWebflowBlocks(formEl);
-
-    if (state === "sending") {
-      if (done) done.style.display = "none";
-      if (fail) fail.style.display = "none";
-      formEl.style.display = "";
-      formEl.classList.add("is-sending");
-      return;
-    }
-
-    formEl.classList.remove("is-sending");
-
-    if (state === "success") {
-      if (done) done.style.display = "block";
-      if (fail) fail.style.display = "none";
-      formEl.style.display = "none";
-      return;
-    }
-
-    if (state === "error") {
-      if (done) done.style.display = "none";
-      if (fail) fail.style.display = "block";
-      formEl.style.display = "";
-      return;
-    }
-  }
-
-  function withAllFieldsEnabled(formEl, fn) {
-    const disabled = Array.from(formEl.querySelectorAll("[disabled]"));
-    disabled.forEach(el => (el.disabled = false));
-    try { return fn(); }
-    finally { disabled.forEach(el => (el.disabled = true)); }
-  }
-
-  async function submitToWebflow(formEl) {
-    const siteId = getSiteId();
-    if (!siteId) {
-      console.warn("[ManualSubmit] Missing data-wf-site on <html>.");
-      setUiState(formEl, "error");
-      return;
-    }
-
-    const endpoint = `https://webflow.com/api/v1/form/${siteId}`;
-
-    setUiState(formEl, "sending");
-
-    try {
-      const res = await withAllFieldsEnabled(formEl, async () => {
-        const fd = new FormData(formEl);
-
-        if (!fd.get("name")) {
-          const formName =
-            formEl.getAttribute("data-name") ||
-            formEl.getAttribute("name") ||
-            formEl.id ||
-            "Form";
-          fd.append("name", formName);
-        }
-
-        if (!fd.get("pageUrl")) fd.append("pageUrl", window.location.href);
-
-        return fetch(endpoint, {
-          method: "POST",
-          body: fd,
-          mode: "cors",
-          credentials: "omit"
-        });
-      });
-
-      if (res && res.ok) {
-        setUiState(formEl, "success");
-        return;
-      }
-
-      console.warn("[ManualSubmit] Non-OK response:", res?.status);
-      setUiState(formEl, "error");
-    } catch (err) {
-      console.warn("[ManualSubmit] Fetch error:", err);
-      setUiState(formEl, "error");
-    }
-  }
-
-  function bind(scope = document) {
-    if (!isScreeningPage()) return;
-
-    const formEl = getFormEl(scope);
-    if (!formEl) return;
-
-    if (formEl.dataset.manualWfSubmitBound === "1") return;
-    formEl.dataset.manualWfSubmitBound = "1";
-
-    formEl.addEventListener("submit", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-
-      if (!formEl.checkValidity()) {
-        formEl.reportValidity();
-        return;
-      }
-
-      submitToWebflow(formEl);
-    }, true);
-
-    console.log("[ManualSubmit] Bound for /request-a-screening ✅");
-  }
-
-  document.addEventListener("DOMContentLoaded", () => bind(document));
-
-  if (window.barba) {
-    barba.hooks.afterEnter(({ next }) => bind(next?.container || document));
-  }
-})();
-
-/* =========================================================
-  ABOUT CREDITS CRAWL (NO PIN) — EXACT PADDING RULES
-========================================================= */
-(() => {
-  if (!window.gsap || !window.ScrollTrigger) return;
-  gsap.registerPlugin(ScrollTrigger);
-
-  function remToPx(rem) {
-    const fs = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
-    return rem * fs;
-  }
-
-  function initAboutCredits(scope = document) {
-    const root = scope && scope.querySelector ? scope : document;
-    const wraps = Array.from(root.querySelectorAll(".about-credits-wrap"));
-    if (!wraps.length) return;
-
-    wraps.forEach((wrap) => {
-      const mask = wrap.querySelector(".about-credits-mask");
-      const layout = wrap.querySelector(".about-credits-layout");
-      if (!mask || !layout) return;
-
-      if (wrap._creditsST) {
-        try { wrap._creditsST.kill(false); } catch (e) {}
-        wrap._creditsST = null;
-      }
-      gsap.killTweensOf(layout);
-
-      const PAD = remToPx(10);
-
-      function computeStartEndY() {
-        const mh = mask.clientHeight;
-        const lh = layout.scrollHeight;
-        const startY = PAD;
-        const endY = mh - PAD - lh;
-        return { startY, endY, mh, lh };
-      }
-
-      const { startY, endY, mh, lh } = computeStartEndY();
-      if (lh <= (mh - PAD * 2) + 1) {
-        gsap.set(layout, { y: PAD });
-        return;
-      }
-
-      gsap.set(layout, { y: startY });
-
-      const st = ScrollTrigger.create({
-        trigger: wrap,
-        start: "top 90%",
-        end: "bottom 10%",
-        scrub: true,
-        invalidateOnRefresh: true,
-
-        onRefresh: () => {
-          const vals = computeStartEndY();
-          gsap.set(layout, { y: vals.startY });
-        },
-
-        onUpdate: (self) => {
-          const { startY, endY } = computeStartEndY();
-          const y = startY + (endY - startY) * self.progress;
-          gsap.set(layout, { y });
-        }
-      });
-
-      wrap._creditsST = st;
-    });
-
-    requestAnimationFrame(() => ScrollTrigger.refresh());
-  }
-
-  document.addEventListener("DOMContentLoaded", () => {
-    initAboutCredits(document);
-    console.log("[AboutCredits] init (DOMContentLoaded) ✅");
-  });
-
-  if (document.fonts?.ready) {
-    document.fonts.ready.then(() => {
-      try { ScrollTrigger.refresh(); } catch (e) {}
-    });
-  }
-
-  if (window.barba) {
-    barba.hooks.afterEnter(({ next }) => {
-      initAboutCredits(next?.container || document);
-      console.log("[AboutCredits] init (afterEnter) ✅");
-    });
-
-    barba.hooks.after(() => {
-      try { ScrollTrigger.refresh(); } catch (e) {}
-    });
-  }
-})();
-
-/* =========================================================
-  Footer links: disable current link
-========================================================= */
-(() => {
-  const NAV_SELECTOR = ".footer_link";
-
-  function normalize(url) {
-    const u = new URL(url, location.origin);
-    let p = u.pathname.replace(/\/+$/, "") || "/";
-    return p + u.search;
-  }
-
-  function disableCurrentNavLinks(scope = document) {
-    const current = normalize(location.href);
-
-    scope.querySelectorAll(NAV_SELECTOR).forEach(a => {
-      if (a.classList.contains("w-lightbox") || a.closest(".w-lightbox")) return;
-
-      const link = normalize(a.href);
-      const isCurrent = link === current;
-
-      a.classList.toggle("is-current", isCurrent);
-
-      if (isCurrent) {
-        a.setAttribute("aria-current", "page");
-        a.setAttribute("aria-disabled", "true");
-        a.setAttribute("tabindex", "-1");
-        a.style.pointerEvents = "none";
-        a.style.cursor = "default";
-      } else {
-        a.removeAttribute("aria-current");
-        a.removeAttribute("aria-disabled");
-        a.removeAttribute("tabindex");
-        a.style.pointerEvents = "";
-        a.style.cursor = "";
-      }
-    });
-  }
-
-  document.addEventListener("DOMContentLoaded", () => {
-    disableCurrentNavLinks(document);
-  });
-
-  if (window.barba) {
-    barba.hooks.afterEnter(({ next }) => {
-      disableCurrentNavLinks(next?.container || document);
-      disableCurrentNavLinks(document);
-    });
-  }
+  /* -----------------------------
+     Public API (for Webflow Hotfix layer)
+  ----------------------------- */
+  window.Site = window.Site || {};
+  window.Site.version = "core-1";
+  window.Site.hardScrollTop = hardScrollTop;
+  window.Site.forceAnchor = forceAnchor;
+  window.Site.reinitWebflow = reinitWebflow;
+  window.Site.initGallerySwipers = initGallerySwipers;
+  window.Site.hideSectionsIfCollectionEmpty = hideSectionsIfCollectionEmpty;
+  window.Site.applyMediaTypeFromUrl = applyMediaTypeFromUrl;
+
+  console.log("[Core] loaded ✅");
 })();
