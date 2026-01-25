@@ -1304,5 +1304,6 @@
     }
   })();
 
-  console.log("[site.js] loaded ✅");
+  console.log("[site.js] loaded v3 ✅");
+
 })();
