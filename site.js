@@ -1762,4 +1762,5 @@ FILM GRAIN OVERLAY (Barba-safe, no deps)
 })();
 </script>
 
+console.log("[site.js] loaded ✅");
 
