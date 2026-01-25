@@ -1305,8 +1305,8 @@
   })();
 
   console.log("[site.js] loaded v3 ✅");
-  window.__CORE_BUNDLE_LOADED__ = true;
-console.log("[core.bundle] loaded ✅");
-
 
 })();
+
+  window.__CORE_BUNDLE_LOADED__ = true;
+console.log("[core.bundle] loaded ✅");
