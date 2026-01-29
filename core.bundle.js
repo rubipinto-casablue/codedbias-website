@@ -704,7 +704,6 @@
     initPersistentAudio();
     initGsapEngine();
     initAboutCreditsCrawl();
-    initFilmGrain();
     initDisableCurrentFooterLinks();
 
     // Close dropdown on navigation start (if Barba exists)
