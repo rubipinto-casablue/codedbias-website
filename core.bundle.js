@@ -655,8 +655,8 @@
     // Settings
     const FPS = 18;            // 12–24 looks good
     const SIZE = 220;          // canvas tile size
-    const CONTRAST = 38;       // 10–40
-    const ALPHA = 110;         // 0–255
+    const CONTRAST = 30;       // 10–40
+    const ALPHA = 70;         // 0–255
     const USE_COLORED = false; // true = RGB grain, false = grayscale
 
     let rafId = null;
