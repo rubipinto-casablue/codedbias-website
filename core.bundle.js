@@ -356,31 +356,81 @@
       });
     }
 
-    function initHeroParallax(container = document) {
-      const hero = container.querySelector(".hero-main");
-      if (!hero) return;
+    /**
+ * HERO PARALLAX (Barba-safe, ScrollTrigger-safe)
+ * - Animates .hero-bg and .u-hero-card-wrap on scroll
+ * - Kills/cleans up previous instance when re-initialized
+ * - Works well with Barba (call on first load + afterEnter)
+ *
+ * Requirements:
+ * - GSAP + ScrollTrigger loaded and registered (gsap.registerPlugin(ScrollTrigger))
+ */
+function initHeroParallax(container = document) {
+  if (!window.gsap) return;
 
-      const bg = hero.querySelector(".hero-bg");
-      const card = hero.querySelector(".u-hero-card-wrap");
-      if (!bg || !card) return;
+  // Ensure ScrollTrigger plugin is available
+  if (!window.ScrollTrigger) {
+    console.warn("[HeroParallax] ScrollTrigger is not available.");
+    return;
+  }
 
+  const hero = container.querySelector(".hero-main");
+  if (!hero) return;
+
+  const bg = hero.querySelector(".hero-bg");
+  const card = hero.querySelector(".u-hero-card-wrap");
+  if (!bg || !card) return;
+
+  // Kill previous instance tied to this hero (prevents duplicates across Barba enters)
+  if (hero.__heroParallaxST) {
+    try { hero.__heroParallaxST.kill(true); } catch (e) {}
+    hero.__heroParallaxST = null;
+  }
+
+  // Reset transforms (in case you navigate back / re-enter)
+  gsap.set([bg, card], { clearProps: "transform" });
+  gsap.set([bg, card], { yPercent: 0 });
+
+  // Build animation
+  const tl = gsap.timeline({ defaults: { ease: "none" } });
+  tl.to(bg,   { yPercent: -15 }, 0);
+  tl.to(card, { yPercent: -40 }, 0);
+
+  // Create ScrollTrigger + bind it to hero for cleanup
+  const st = ScrollTrigger.create({
+    trigger: hero,
+    start: "top top",
+    end: "bottom top",
+    scrub: true,
+    invalidateOnRefresh: true,
+    animation: tl,
+
+    // Optional: makes it a bit more resilient on mobile / dynamic layout changes
+    // anticipatePin: 1,
+
+    onRefreshInit: () => {
+      // Ensure a clean state before measurements
       gsap.set([bg, card], { yPercent: 0 });
-
-      const tl = gsap.timeline({
-        scrollTrigger: {
-          trigger: hero,
-          start: "top top",
-          end: "bottom top",
-          scrub: true,
-          invalidateOnRefresh: true
-        }
-      });
-
-      tl.to(bg,   { yPercent: -15, ease: "none" }, 0);
-      tl.to(card, { yPercent: -40, ease: "none" }, 0);
-
-      timelines.push(tl);
     }
+  });
+
+  hero.__heroParallaxST = st;
+}
+
+/**
+ * Optional helper if you want a dedicated destroy (useful on Barba beforeLeave)
+ */
+function destroyHeroParallax(container = document) {
+  if (!window.ScrollTrigger) return;
+  const hero = container.querySelector(".hero-main");
+  if (!hero) return;
+
+  if (hero.__heroParallaxST) {
+    try { hero.__heroParallaxST.kill(true); } catch (e) {}
+    hero.__heroParallaxST = null;
+  }
+}
+
 
     function initAboutIntro(container = document) {
       const targets = container.querySelectorAll('[data-gsap="about-intro"]');
