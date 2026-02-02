@@ -1087,10 +1087,10 @@
 
 
 /* =========================================================
-  MEDIA MODULE (Barba-safe) — FULL
+  MEDIA MODULE (Barba-safe) — FULL (VIDEOS FIXED)
   - Finsweet v2: modules.list.restart() on enter
-  - Lightbox: 100% JS modal + Swiper (images + YouTube videos, autoplay OFF)
-  - Calls inline Webflow auto-recover:
+  - Lightbox: JS modal + Swiper (images + YouTube, autoplay OFF)
+  - Calls inline Webflow:
       window.MediaAutoRecoverBoot / window.MediaAutoRecoverDestroy
   Code comments in English ✅
 ========================================================= */
@@ -1102,7 +1102,6 @@
 
   const state = {
     container: null,
-    stopIntervalId: null,
 
     // Lightbox
     onDocClick: null,
@@ -1124,18 +1123,6 @@
   }
 
   function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
-
-  function safeEscape(val) {
-    try { return CSS.escape(val); }
-    catch (e) { return String(val).replace(/"/g, '\\"'); }
-  }
-
-  function clearStopInterval() {
-    if (state.stopIntervalId) {
-      clearInterval(state.stopIntervalId);
-      state.stopIntervalId = null;
-    }
-  }
 
   /* =========================================================
      1) FINSWEET v2 (fs-list) — RESTART
@@ -1188,10 +1175,10 @@
   /* =========================================================
      2) LIGHTBOX (100% JS generated)
      - Triggers: .js-pswp
-     - Image: use <img> or .js-visual (img/bg)
-     - Video: add data-video="youtube" + data-video-id="XXXX"
-       Optional: data-thumb="..." for thumbs
-     - Autoplay is OFF
+     - Images: <img> or .js-visual (img/bg)
+     - Videos: data-video="youtube" + data-video-id="XXXX"
+       (can be on .js-pswp or any child inside)
+     - Autoplay: OFF
   ========================================================= */
   const TRIGGER_SELECTOR = ".js-pswp";
   const VISUAL_SELECTOR  = ".js-visual";
@@ -1203,39 +1190,22 @@
     style.id = "mglb-styles";
     style.textContent = `
 #mglb.mglb{
-  position: fixed;
-  inset: 0;
-  z-index: 9999;
-  opacity: 0;
-  pointer-events: none;
-  visibility: hidden;
+  position: fixed; inset: 0; z-index: 9999;
+  opacity: 0; pointer-events: none; visibility: hidden;
   transition: opacity .18s ease, visibility 0s linear .18s;
 }
 #mglb.mglb.is-open{
-  opacity: 1;
-  pointer-events: auto;
-  visibility: visible;
+  opacity: 1; pointer-events: auto; visibility: visible;
   transition: opacity .18s ease;
 }
 #mglb.mglb > .mglb__backdrop{
-  position: fixed;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0,0,0,.72);
-  z-index: 0;
+  position: fixed; inset: 0; background: rgba(0,0,0,.72); z-index: 0;
 }
 #mglb.mglb > .mglb__panel{
-  position: fixed;
-  inset: 0;
-  z-index: 1;
-  width: 100%;
-  height: 100%;
-  padding: 28px;
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
+  position: fixed; inset: 0; z-index: 1;
+  width: 100%; height: 100%;
+  padding: 28px; box-sizing: border-box;
+  display: flex; flex-direction: column; gap: 14px;
 }
 @media (max-width: 767px){
   #mglb.mglb > .mglb__panel{ padding: 16px; }
@@ -1243,7 +1213,6 @@
 #mglb .mglb__main{ width:100%; flex:1; min-height:0; display:flex; align-items:center; justify-content:center; }
 #mglb .mglb__main .swiper-wrapper{ align-items:center; }
 #mglb .mglb__main .swiper-slide{ display:flex; align-items:center; justify-content:center; width:100%; height:100%; }
-#mglb .mglb__main img{ max-width:100%; max-height:100%; object-fit:contain; display:block; }
 
 #mglb .mglb__video{
   width: 100%;
@@ -1267,18 +1236,12 @@
 #mglb button[data-mglb-close],
 #mglb .mglb__prev,
 #mglb .mglb__next{
-  width: 44px;
-  height: 44px;
-  border-radius: 999px;
+  width: 44px; height: 44px; border-radius: 999px;
   background: rgba(255,255,255,.18);
   border: 1px solid rgba(255,255,255,.22);
   color: #fff;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  user-select: none;
-  -webkit-tap-highlight-color: transparent;
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent;
   backdrop-filter: blur(6px);
 }
 #mglb button[data-mglb-close]{ position:absolute; top:22px; right:22px; z-index:10; }
@@ -1289,7 +1252,6 @@
   #mglb .mglb__prev{ left:14px; }
   #mglb .mglb__next{ right:14px; }
 }
-
 html.mglb-lock, body.mglb-lock { overflow: hidden !important; }
 `;
     document.head.appendChild(style);
@@ -1371,13 +1333,10 @@ html.mglb-lock, body.mglb-lock { overflow: hidden !important; }
 
   function openModal() {
     const { modal } = getModalRefs();
-
     modal.style.pointerEvents = "auto";
     modal.style.visibility = "visible";
-
     modal.classList.add("is-open");
     modal.setAttribute("aria-hidden", "false");
-
     document.documentElement.classList.add("mglb-lock");
     document.body.classList.add("mglb-lock");
   }
@@ -1396,7 +1355,6 @@ html.mglb-lock, body.mglb-lock { overflow: hidden !important; }
     clearWrappers();
 
     modal.style.pointerEvents = "none";
-
     window.clearTimeout(modal.__hideT);
     modal.__hideT = window.setTimeout(() => {
       modal.style.visibility = "hidden";
@@ -1404,8 +1362,9 @@ html.mglb-lock, body.mglb-lock { overflow: hidden !important; }
   }
 
   function getThumbSrcFromTrigger(trigger) {
-    // Prefer explicit thumb for videos
-    const dataThumb = trigger.getAttribute("data-thumb");
+    const dataThumb =
+      trigger.getAttribute("data-thumb") ||
+      trigger.querySelector?.("[data-thumb]")?.getAttribute?.("data-thumb");
     if (dataThumb) return dataThumb;
 
     const visual = trigger.querySelector(VISUAL_SELECTOR);
@@ -1426,26 +1385,30 @@ html.mglb-lock, body.mglb-lock { overflow: hidden !important; }
     return img ? (img.currentSrc || img.src || null) : null;
   }
 
-  function getImageSrcFromTrigger(trigger) {
-    return getThumbSrcFromTrigger(trigger);
+  function getVideoItemFromTrigger(trigger) {
+    // Allow attributes on trigger OR any child inside trigger
+    const host = trigger.matches?.("[data-video],[data-video-id]") ? trigger : trigger.querySelector?.("[data-video],[data-video-id]");
+    if (!host) return null;
+
+    const kind = (host.getAttribute("data-video") || "").trim().toLowerCase();
+    if (kind !== "youtube") return null;
+
+    const vid = (host.getAttribute("data-video-id") || "").trim();
+    if (!vid) return null;
+
+    const thumb =
+      host.getAttribute("data-thumb") ||
+      trigger.getAttribute("data-thumb") ||
+      getThumbSrcFromTrigger(trigger) ||
+      `https://i.ytimg.com/vi/${encodeURIComponent(vid)}/hqdefault.jpg`;
+
+    return { type: "youtube", id: vid, thumb };
   }
 
-  function getVideoItemFromTrigger(trigger) {
-    const kind = (trigger.getAttribute("data-video") || "").trim().toLowerCase();
-    if (!kind) return null;
-
-    if (kind === "youtube") {
-      const vid = (trigger.getAttribute("data-video-id") || "").trim();
-      if (!vid) return null;
-
-      const thumb =
-        trigger.getAttribute("data-thumb") ||
-        `https://i.ytimg.com/vi/${encodeURIComponent(vid)}/hqdefault.jpg`;
-
-      return { type: "youtube", id: vid, thumb };
-    }
-
-    return null;
+  function getImageItemFromTrigger(trigger) {
+    const src = getThumbSrcFromTrigger(trigger);
+    if (!src) return null;
+    return { type: "image", src, thumb: src };
   }
 
   function getScopeRoot(clickedTrigger) {
@@ -1462,7 +1425,6 @@ html.mglb-lock, body.mglb-lock { overflow: hidden !important; }
     return r.width > 2 && r.height > 2;
   }
 
-  // ✅ This function was missing in your current GitHub build (error in console)
   function buildScopedGallery(clickedTrigger) {
     const scopeRoot = getScopeRoot(clickedTrigger);
     const triggers = Array.from(scopeRoot.querySelectorAll(TRIGGER_SELECTOR)).filter(isVisible);
@@ -1478,13 +1440,11 @@ html.mglb-lock, body.mglb-lock { overflow: hidden !important; }
         return;
       }
 
-      const src = getImageSrcFromTrigger(t);
-      if (!src) return;
+      const imageItem = getImageItemFromTrigger(t);
+      if (!imageItem) return;
 
-      const thumb = getThumbSrcFromTrigger(t) || src;
       if (t === clickedTrigger) startIndex = items.length;
-
-      items.push({ type: "image", src, thumb });
+      items.push(imageItem);
     });
 
     return { items, startIndex };
@@ -1502,7 +1462,6 @@ html.mglb-lock, body.mglb-lock { overflow: hidden !important; }
       s.className = "swiper-slide";
 
       if (it.type === "youtube") {
-        // Autoplay OFF (autoplay=0). Also avoid muted autoplay flags.
         const src =
           `https://www.youtube-nocookie.com/embed/${encodeURIComponent(it.id)}` +
           `?autoplay=0&mute=0&controls=1&modestbranding=1&playsinline=1&rel=0`;
@@ -1527,6 +1486,7 @@ html.mglb-lock, body.mglb-lock { overflow: hidden !important; }
     items.forEach((it) => {
       const s = document.createElement("div");
       s.className = "swiper-slide";
+
       const thumbSrc = it.thumb || (it.type === "youtube"
         ? `https://i.ytimg.com/vi/${encodeURIComponent(it.id)}/hqdefault.jpg`
         : it.src);
@@ -1604,42 +1564,36 @@ html.mglb-lock, body.mglb-lock { overflow: hidden !important; }
   }
 
   /* =========================================================
-     Boot / Destroy (public)
+     Boot / Destroy
   ========================================================= */
   async function MediaBoot(container) {
     state.container = container || getContainer();
     if (!isInMedia()) return;
 
-    // Restart fs-list
-    try { await bootFinsweetList(); } catch (e) {}
+    await bootFinsweetList();
 
-    // Call inline auto-recover (filters)
+    // Auto recover inline (filters + clear binding)
     if (typeof window.MediaAutoRecoverBoot === "function") {
-      try { window.MediaAutoRecoverBoot(state.container || document); }
-      catch (e) { console.warn("[Media] MediaAutoRecoverBoot failed:", e); }
+      try { window.MediaAutoRecoverBoot(state.container); } catch (e) {}
     }
 
-    // Lightbox opener (capture=true survives stopPropagation)
     if (!state.onDocClick) {
       state.onDocClick = (e) => {
         if (!isInMedia()) return;
 
-        // Do not open if already open
         const modal = document.getElementById("mglb");
         if (modal && modal.classList.contains("is-open")) return;
 
         const trigger = e.target?.closest?.(TRIGGER_SELECTOR);
         if (!trigger) return;
 
-        // Avoid hijacking filter clicks (only triggers)
         e.preventDefault();
         e.stopPropagation();
         e.stopImmediatePropagation?.();
 
         const { items, startIndex } = buildScopedGallery(trigger);
-
         if (!items || !items.length) {
-          console.warn("[MGLB] No items found. Use <img>/.js-visual for images, or data-video/data-video-id for videos.");
+          console.warn("[MGLB] No items found. Add image or data-video/youtube id.");
           return;
         }
 
@@ -1655,12 +1609,8 @@ html.mglb-lock, body.mglb-lock { overflow: hidden !important; }
   }
 
   function MediaDestroy() {
-    clearStopInterval();
-
-    // Cleanup inline auto-recover
     if (typeof window.MediaAutoRecoverDestroy === "function") {
-      try { window.MediaAutoRecoverDestroy(); }
-      catch (e) { console.warn("[Media] MediaAutoRecoverDestroy failed:", e); }
+      try { window.MediaAutoRecoverDestroy(); } catch (e) {}
     }
 
     try { closeModal(); } catch (e) {}
@@ -1678,8 +1628,6 @@ html.mglb-lock, body.mglb-lock { overflow: hidden !important; }
   window.MediaBoot = MediaBoot;
   window.MediaDestroy = MediaDestroy;
 })();
-
-
 
 
 /* =========================================================
