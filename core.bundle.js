@@ -1813,86 +1813,109 @@ html.mglb-lock, body.mglb-lock { overflow: hidden !important; }
     }, 60);
   }
 
-  /* =========================================================
-     Boot / Destroy (public)
-  ========================================================= */
-  async function MediaBoot(container) {
-    state.container = container || getContainer();
-    if (!isInMedia()) return;
+ /* =========================================================
+  MEDIA MODULE — Boot / Destroy (CLEAN)
+  - Boots only what Media needs
+  - No filter-reset code (Finsweet clear button handles it)
+  - Calls inline UI helper to show/hide clear button when empty:
+    MediaClearVisBoot / MediaClearVisDestroy
+  Code comments in English ✅
+========================================================= */
 
+async function MediaBoot(container) {
+  state.container = container || getContainer();
+  if (!isInMedia()) return;
+
+  // 1) Restart fs-list (Barba-safe) so filters + list work after SPA nav
+  try {
     await bootFinsweetList(state.container || document);
+  } catch (e) {
+    console.warn("[Media] bootFinsweetList failed:", e);
+  }
 
+  // 2) Mobile filter nav (optional)
+  try {
     bindMobileFilterNav(state.container || document);
+  } catch (e) {}
 
-    // Allow you to iterate filter fixes in Webflow without redeploying GitHub
-    if (typeof window.MediaPatchBoot === "function") {
-      try { window.MediaPatchBoot(state.container || document); } catch (e) {}
+  // 3) Show/Hide the native Finsweet clear button when results are empty
+  //    (This is your new clean UX patch, no filter hacking)
+  if (typeof window.MediaClearVisBoot === "function") {
+    try {
+      window.MediaClearVisBoot(state.container || document);
+    } catch (e) {
+      console.warn("[Media] MediaClearVisBoot failed:", e);
     }
-
-    if (!state.onDocClick) {
-      state.onDocClick = (e) => {
-        if (!isInMedia()) return;
-
-        const modal = document.getElementById("mglb");
-        if (modal && modal.classList.contains("is-open")) return;
-
-        const trigger = e.target.closest(TRIGGER_SELECTOR);
-        if (!trigger) return;
-
-        e.preventDefault();
-        e.stopPropagation();
-
-        const { items, startIndex } = buildScopedGallery(trigger);
-        if (!items.length) {
-          console.warn("[MGLB] No items found. Use <img>/.js-visual for images, or data-video/data-video-id for videos.");
-          return;
-        }
-
-        openModal();
-        mountSlides(items);
-        setTimeout(() => initSwipers(startIndex), 50);
-      };
-
-      document.addEventListener("click", state.onDocClick, true);
-    }
-
-// Inline Webflow patch (empty results reset)
-if (typeof window.MediaPatchBoot === "function") {
-  try { window.MediaPatchBoot(state.container || document); }
-  catch (e) { console.warn("[Media] MediaPatchBoot failed:", e); }
-}
-
-     
-    console.log("[Media] boot ✅ (fs-list restarted)");
   }
 
-  function MediaDestroy() {
-    clearStopInterval();
+  // 4) Lightbox opener (capture=true survives stopPropagation in Webflow)
+  if (!state.onDocClick) {
+    state.onDocClick = (e) => {
+      if (!isInMedia()) return;
 
-     // Inline Webflow patch cleanup
-if (typeof window.MediaPatchDestroy === "function") {
-  try { window.MediaPatchDestroy(); }
-  catch (e) { console.warn("[Media] MediaPatchDestroy failed:", e); }
+      // Do not re-open if already open
+      const modal = document.getElementById("mglb");
+      if (modal && modal.classList.contains("is-open")) return;
+
+      const trigger = e.target?.closest?.(TRIGGER_SELECTOR);
+      if (!trigger) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation?.();
+
+      const { items, startIndex } = buildScopedGallery(trigger);
+
+      if (!items || !items.length) {
+        console.warn(
+          "[MGLB] No items found. Use <img>/.js-visual for images, or data-video/data-video-id for videos."
+        );
+        return;
+      }
+
+      openModal();
+      mountSlides(items);
+
+      // Small delay to let DOM paint before Swiper measures
+      setTimeout(() => initSwipers(startIndex), 50);
+    };
+
+    document.addEventListener("click", state.onDocClick, true);
+  }
+
+  console.log("[Media] boot ✅ (fs-list restarted)");
 }
 
+function MediaDestroy() {
+  // 1) Stop any intervals used by stop param logic (if your module uses it)
+  clearStopInterval();
 
-    try { closeModal(); } catch (e) {}
-    try { destroySwipers(); } catch (e) {}
-
-    if (state.onDocClick) {
-      document.removeEventListener("click", state.onDocClick, true);
-      state.onDocClick = null;
+  // 2) Cleanup the inline "clear button visibility" helper
+  if (typeof window.MediaClearVisDestroy === "function") {
+    try {
+      window.MediaClearVisDestroy();
+    } catch (e) {
+      console.warn("[Media] MediaClearVisDestroy failed:", e);
     }
-
-    try { unbindMobileFilterNav(state.container || document); } catch (e) {}
-
-    if (typeof window.MediaPatchDestroy === "function") {
-      try { window.MediaPatchDestroy(state.container || document); } catch (e) {}
-    }
-
-    state.container = null;
-    console.log("[Media] destroy ✅");
   }
+
+  // 3) Close + destroy lightbox
+  try { closeModal(); } catch (e) {}
+  try { destroySwipers(); } catch (e) {}
+
+  // 4) Remove the document click handler
+  if (state.onDocClick) {
+    try { document.removeEventListener("click", state.onDocClick, true); } catch (e) {}
+    state.onDocClick = null;
+  }
+
+  // 5) Mobile filter nav cleanup (optional)
+  try { unbindMobileFilterNav(state.container || document); } catch (e) {}
+
+  state.container = null;
+  console.log("[Media] destroy ✅");
+}
+
 
   window.MediaBoot = MediaBoot;
   window.MediaDestroy = MediaDestroy;
