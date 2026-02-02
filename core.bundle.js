@@ -1087,12 +1087,11 @@
 
 
 /* =========================================================
-  MEDIA MODULE (Barba-safe) — CLEAN + AutoRecover hook
-  - Finsweet v2: restart list on enter (SPA-safe)
-  - Lightbox: your existing JS lightbox (images + video support)
-  - Mobile filter nav (optional)
-  - AutoRecover: uses native FS clear button + replays filter click when empty
-    (defined inline in Webflow as window.MediaAutoRecoverBoot/Destroy)
+  MEDIA MODULE (Barba-safe) — FULL
+  - Finsweet v2: modules.list.restart() on enter
+  - Lightbox: 100% JS modal + Swiper (images + YouTube videos, autoplay OFF)
+  - Calls inline Webflow auto-recover:
+      window.MediaAutoRecoverBoot / window.MediaAutoRecoverDestroy
   Code comments in English ✅
 ========================================================= */
 (() => {
@@ -1108,10 +1107,7 @@
     // Lightbox
     onDocClick: null,
     mainSwiper: null,
-    thumbsSwiper: null,
-
-    // Mobile filter nav
-    __mnav: null
+    thumbsSwiper: null
   };
 
   /* -----------------------------
@@ -1125,6 +1121,13 @@
     const c = getContainer();
     const ns = (c?.getAttribute("data-barba-namespace") || "").trim();
     return ns === NS;
+  }
+
+  function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  function safeEscape(val) {
+    try { return CSS.escape(val); }
+    catch (e) { return String(val).replace(/"/g, '\\"'); }
   }
 
   function clearStopInterval() {
@@ -1142,7 +1145,7 @@
 
     while (performance.now() - t0 < timeoutMs) {
       if (window.FinsweetAttributes) break;
-      await new Promise(r => setTimeout(r, 50));
+      await delay(50);
     }
 
     const FA = window.FinsweetAttributes;
@@ -1178,41 +1181,427 @@
     return false;
   }
 
-  async function bootFinsweetList(scope) {
+  async function bootFinsweetList() {
     return restartFsList(6000);
   }
 
   /* =========================================================
-     2) MOBILE FILTER NAV (optional)
-     - Keep your existing implementation
-  ========================================================= */
-  function bindMobileFilterNav(scope) {
-    // If you already have your full implementation in your repo,
-    // keep it. This placeholder assumes your previous function exists.
-    // (No changes required here for AutoRecover.)
-    if (typeof window.__bindMobileFilterNavImpl === "function") {
-      window.__bindMobileFilterNavImpl(scope);
-    }
-  }
-
-  function unbindMobileFilterNav(scope) {
-    if (typeof window.__unbindMobileFilterNavImpl === "function") {
-      window.__unbindMobileFilterNavImpl(scope);
-    }
-  }
-
-  /* =========================================================
-     3) LIGHTBOX (your existing implementation)
-     - Keep your current code for images + YouTube videos no-autoplay
-     - Only wiring is in MediaBoot
+     2) LIGHTBOX (100% JS generated)
+     - Triggers: .js-pswp
+     - Image: use <img> or .js-visual (img/bg)
+     - Video: add data-video="youtube" + data-video-id="XXXX"
+       Optional: data-thumb="..." for thumbs
+     - Autoplay is OFF
   ========================================================= */
   const TRIGGER_SELECTOR = ".js-pswp";
+  const VISUAL_SELECTOR  = ".js-visual";
 
-  // These must exist in your current media module:
-  // buildScopedGallery(trigger) -> { items, startIndex }
-  // openModal(), mountSlides(items), initSwipers(startIndex)
-  // closeModal(), destroySwipers()
-  // (Keep your working lightbox code as-is.)
+  function ensureModalStylesOnce() {
+    if (document.getElementById("mglb-styles")) return;
+
+    const style = document.createElement("style");
+    style.id = "mglb-styles";
+    style.textContent = `
+#mglb.mglb{
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  transition: opacity .18s ease, visibility 0s linear .18s;
+}
+#mglb.mglb.is-open{
+  opacity: 1;
+  pointer-events: auto;
+  visibility: visible;
+  transition: opacity .18s ease;
+}
+#mglb.mglb > .mglb__backdrop{
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0,0,0,.72);
+  z-index: 0;
+}
+#mglb.mglb > .mglb__panel{
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  padding: 28px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+@media (max-width: 767px){
+  #mglb.mglb > .mglb__panel{ padding: 16px; }
+}
+#mglb .mglb__main{ width:100%; flex:1; min-height:0; display:flex; align-items:center; justify-content:center; }
+#mglb .mglb__main .swiper-wrapper{ align-items:center; }
+#mglb .mglb__main .swiper-slide{ display:flex; align-items:center; justify-content:center; width:100%; height:100%; }
+#mglb .mglb__main img{ max-width:100%; max-height:100%; object-fit:contain; display:block; }
+
+#mglb .mglb__video{
+  width: 100%;
+  max-width: 1200px;
+  aspect-ratio: 16 / 9;
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(0,0,0,.35);
+}
+#mglb .mglb__video iframe{
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+}
+
+#mglb .mglb__thumbs{ width:100%; padding:0 0 4px; }
+#mglb .mglb__thumbs .swiper-slide{ width:84px; height:58px; opacity:.45; transition: opacity .18s ease; }
+#mglb .mglb__thumbs .swiper-slide-thumb-active{ opacity:1; }
+
+#mglb button[data-mglb-close],
+#mglb .mglb__prev,
+#mglb .mglb__next{
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.18);
+  border: 1px solid rgba(255,255,255,.22);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  backdrop-filter: blur(6px);
+}
+#mglb button[data-mglb-close]{ position:absolute; top:22px; right:22px; z-index:10; }
+#mglb .mglb__prev{ position:absolute; left:22px; top:50%; transform:translateY(-50%); z-index:10; }
+#mglb .mglb__next{ position:absolute; right:22px; top:50%; transform:translateY(-50%); z-index:10; }
+@media (max-width: 767px){
+  #mglb button[data-mglb-close]{ top:14px; right:14px; }
+  #mglb .mglb__prev{ left:14px; }
+  #mglb .mglb__next{ right:14px; }
+}
+
+html.mglb-lock, body.mglb-lock { overflow: hidden !important; }
+`;
+    document.head.appendChild(style);
+  }
+
+  function ensureModalExists() {
+    ensureModalStylesOnce();
+
+    let modal = document.getElementById("mglb");
+    if (modal) return modal;
+
+    modal = document.createElement("div");
+    modal.id = "mglb";
+    modal.className = "mglb";
+    modal.setAttribute("aria-hidden", "true");
+
+    modal.innerHTML = `
+      <div class="mglb__backdrop" data-mglb-backdrop></div>
+      <div class="mglb__panel">
+        <button type="button" data-mglb-close aria-label="Close">✕</button>
+
+        <div class="mglb__main swiper">
+          <div class="swiper-wrapper" id="mglbMainWrapper"></div>
+        </div>
+
+        <div class="mglb__thumbs swiper">
+          <div class="swiper-wrapper" id="mglbThumbsWrapper"></div>
+        </div>
+
+        <button type="button" class="mglb__prev" aria-label="Previous">‹</button>
+        <button type="button" class="mglb__next" aria-label="Next">›</button>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    if (!modal.__mglbBound) {
+      modal.__mglbBound = true;
+
+      modal.addEventListener("click", (e) => {
+        const closeBtn = e.target?.closest?.("[data-mglb-close]");
+        const backdrop = e.target?.closest?.("[data-mglb-backdrop]");
+        if (closeBtn || backdrop) closeModal();
+      });
+
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && modal.classList.contains("is-open")) closeModal();
+      });
+    }
+
+    return modal;
+  }
+
+  function getModalRefs() {
+    const modal = ensureModalExists();
+    return {
+      modal,
+      mainRoot: modal.querySelector(".mglb__main.swiper"),
+      thumbsRoot: modal.querySelector(".mglb__thumbs.swiper"),
+      mainW: modal.querySelector("#mglbMainWrapper"),
+      thumbsW: modal.querySelector("#mglbThumbsWrapper"),
+      nextEl: modal.querySelector(".mglb__next"),
+      prevEl: modal.querySelector(".mglb__prev")
+    };
+  }
+
+  function destroySwipers() {
+    try { state.mainSwiper?.destroy?.(true, true); } catch (e) {}
+    try { state.thumbsSwiper?.destroy?.(true, true); } catch (e) {}
+    state.mainSwiper = null;
+    state.thumbsSwiper = null;
+  }
+
+  function clearWrappers() {
+    const { mainW, thumbsW } = getModalRefs();
+    if (mainW) mainW.innerHTML = "";
+    if (thumbsW) thumbsW.innerHTML = "";
+  }
+
+  function openModal() {
+    const { modal } = getModalRefs();
+
+    modal.style.pointerEvents = "auto";
+    modal.style.visibility = "visible";
+
+    modal.classList.add("is-open");
+    modal.setAttribute("aria-hidden", "false");
+
+    document.documentElement.classList.add("mglb-lock");
+    document.body.classList.add("mglb-lock");
+  }
+
+  function closeModal() {
+    const modal = document.getElementById("mglb");
+    if (!modal) return;
+
+    modal.classList.remove("is-open");
+    modal.setAttribute("aria-hidden", "true");
+
+    document.documentElement.classList.remove("mglb-lock");
+    document.body.classList.remove("mglb-lock");
+
+    destroySwipers();
+    clearWrappers();
+
+    modal.style.pointerEvents = "none";
+
+    window.clearTimeout(modal.__hideT);
+    modal.__hideT = window.setTimeout(() => {
+      modal.style.visibility = "hidden";
+    }, 200);
+  }
+
+  function getThumbSrcFromTrigger(trigger) {
+    // Prefer explicit thumb for videos
+    const dataThumb = trigger.getAttribute("data-thumb");
+    if (dataThumb) return dataThumb;
+
+    const visual = trigger.querySelector(VISUAL_SELECTOR);
+    if (visual) {
+      if ((visual.tagName || "").toLowerCase() === "img") return visual.currentSrc || visual.src || null;
+
+      const innerImg = visual.querySelector?.("img");
+      if (innerImg) return innerImg.currentSrc || innerImg.src || null;
+
+      const bg = getComputedStyle(visual).backgroundImage;
+      if (bg && bg !== "none") {
+        const match = bg.match(/url\(["']?(.*?)["']?\)/);
+        if (match && match[1]) return match[1];
+      }
+    }
+
+    const img = trigger.querySelector("img");
+    return img ? (img.currentSrc || img.src || null) : null;
+  }
+
+  function getImageSrcFromTrigger(trigger) {
+    return getThumbSrcFromTrigger(trigger);
+  }
+
+  function getVideoItemFromTrigger(trigger) {
+    const kind = (trigger.getAttribute("data-video") || "").trim().toLowerCase();
+    if (!kind) return null;
+
+    if (kind === "youtube") {
+      const vid = (trigger.getAttribute("data-video-id") || "").trim();
+      if (!vid) return null;
+
+      const thumb =
+        trigger.getAttribute("data-thumb") ||
+        `https://i.ytimg.com/vi/${encodeURIComponent(vid)}/hqdefault.jpg`;
+
+      return { type: "youtube", id: vid, thumb };
+    }
+
+    return null;
+  }
+
+  function getScopeRoot(clickedTrigger) {
+    return (
+      clickedTrigger.closest(".w-dyn-list") ||
+      clickedTrigger.closest(".w-dyn-items") ||
+      getContainer() ||
+      document
+    );
+  }
+
+  function isVisible(el) {
+    const r = el.getBoundingClientRect();
+    return r.width > 2 && r.height > 2;
+  }
+
+  // ✅ This function was missing in your current GitHub build (error in console)
+  function buildScopedGallery(clickedTrigger) {
+    const scopeRoot = getScopeRoot(clickedTrigger);
+    const triggers = Array.from(scopeRoot.querySelectorAll(TRIGGER_SELECTOR)).filter(isVisible);
+
+    const items = [];
+    let startIndex = 0;
+
+    triggers.forEach((t) => {
+      const videoItem = getVideoItemFromTrigger(t);
+      if (videoItem) {
+        if (t === clickedTrigger) startIndex = items.length;
+        items.push(videoItem);
+        return;
+      }
+
+      const src = getImageSrcFromTrigger(t);
+      if (!src) return;
+
+      const thumb = getThumbSrcFromTrigger(t) || src;
+      if (t === clickedTrigger) startIndex = items.length;
+
+      items.push({ type: "image", src, thumb });
+    });
+
+    return { items, startIndex };
+  }
+
+  function mountSlides(items) {
+    const { mainW, thumbsW } = getModalRefs();
+    if (!mainW || !thumbsW) return;
+
+    mainW.innerHTML = "";
+    thumbsW.innerHTML = "";
+
+    items.forEach((it) => {
+      const s = document.createElement("div");
+      s.className = "swiper-slide";
+
+      if (it.type === "youtube") {
+        // Autoplay OFF (autoplay=0). Also avoid muted autoplay flags.
+        const src =
+          `https://www.youtube-nocookie.com/embed/${encodeURIComponent(it.id)}` +
+          `?autoplay=0&mute=0&controls=1&modestbranding=1&playsinline=1&rel=0`;
+
+        s.innerHTML = `
+          <div class="mglb__video">
+            <iframe
+              src="${src}"
+              title="YouTube video"
+              allow="encrypted-media; picture-in-picture"
+              referrerpolicy="strict-origin-when-cross-origin"
+              allowfullscreen></iframe>
+          </div>
+        `;
+      } else {
+        s.innerHTML = `<img src="${it.src}" alt="" style="max-width:100%;max-height:100%;object-fit:contain;display:block;">`;
+      }
+
+      mainW.appendChild(s);
+    });
+
+    items.forEach((it) => {
+      const s = document.createElement("div");
+      s.className = "swiper-slide";
+      const thumbSrc = it.thumb || (it.type === "youtube"
+        ? `https://i.ytimg.com/vi/${encodeURIComponent(it.id)}/hqdefault.jpg`
+        : it.src);
+
+      s.innerHTML = `
+        <div style="position:relative;width:100%;height:100%;">
+          <img src="${thumbSrc}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:6px;">
+        </div>
+      `;
+      thumbsW.appendChild(s);
+    });
+  }
+
+  function setActiveThumb(idx) {
+    if (!state.thumbsSwiper) return;
+    try {
+      state.thumbsSwiper.slides.forEach((sl) => sl.classList.remove("swiper-slide-thumb-active"));
+      const active = state.thumbsSwiper.slides[idx];
+      if (active) active.classList.add("swiper-slide-thumb-active");
+      state.thumbsSwiper.slideTo(idx, 0);
+      state.thumbsSwiper.update();
+    } catch (e) {}
+  }
+
+  function initSwipers(startIndex) {
+    if (!window.Swiper) {
+      console.warn("[MGLB] Swiper is not loaded.");
+      return;
+    }
+
+    const { mainRoot, thumbsRoot, nextEl, prevEl } = getModalRefs();
+    if (!mainRoot || !thumbsRoot) {
+      console.warn("[MGLB] Missing modal roots.");
+      return;
+    }
+
+    destroySwipers();
+
+    state.thumbsSwiper = new Swiper(thumbsRoot, {
+      slidesPerView: "auto",
+      spaceBetween: 8,
+      watchSlidesProgress: true,
+      grabCursor: true,
+      observer: true,
+      observeParents: true
+    });
+
+    state.mainSwiper = new Swiper(mainRoot, {
+      initialSlide: startIndex,
+      navigation: (nextEl && prevEl) ? { nextEl, prevEl } : undefined,
+      observer: true,
+      observeParents: true
+    });
+
+    state.thumbsSwiper.on("click", () => {
+      const idx = state.thumbsSwiper.clickedIndex;
+      if (typeof idx !== "number" || idx < 0) return;
+      state.mainSwiper?.slideTo?.(idx);
+    });
+
+    state.mainSwiper.on("slideChange", () => {
+      const idx = state.mainSwiper.activeIndex;
+      setActiveThumb(idx);
+    });
+
+    state.mainSwiper.slideTo(startIndex, 0);
+    state.thumbsSwiper.slideTo(startIndex, 0);
+    setActiveThumb(startIndex);
+
+    setTimeout(() => {
+      try { state.mainSwiper?.update?.(); } catch (e) {}
+      try { state.thumbsSwiper?.update?.(); } catch (e) {}
+      setActiveThumb(state.mainSwiper?.activeIndex ?? startIndex);
+    }, 60);
+  }
 
   /* =========================================================
      Boot / Destroy (public)
@@ -1221,51 +1610,42 @@
     state.container = container || getContainer();
     if (!isInMedia()) return;
 
-    // 1) Restart fs-list
-    try { await bootFinsweetList(state.container || document); }
-    catch (e) { console.warn("[Media] bootFinsweetList failed:", e); }
+    // Restart fs-list
+    try { await bootFinsweetList(); } catch (e) {}
 
-    // 2) Mobile nav (optional)
-    try { bindMobileFilterNav(state.container || document); } catch (e) {}
-
-    // 3) AutoRecover + Clear visibility helper (inline in Webflow)
+    // Call inline auto-recover (filters)
     if (typeof window.MediaAutoRecoverBoot === "function") {
       try { window.MediaAutoRecoverBoot(state.container || document); }
       catch (e) { console.warn("[Media] MediaAutoRecoverBoot failed:", e); }
     }
 
-    // 4) Lightbox opener
+    // Lightbox opener (capture=true survives stopPropagation)
     if (!state.onDocClick) {
       state.onDocClick = (e) => {
         if (!isInMedia()) return;
 
+        // Do not open if already open
         const modal = document.getElementById("mglb");
         if (modal && modal.classList.contains("is-open")) return;
 
         const trigger = e.target?.closest?.(TRIGGER_SELECTOR);
         if (!trigger) return;
 
+        // Avoid hijacking filter clicks (only triggers)
         e.preventDefault();
         e.stopPropagation();
         e.stopImmediatePropagation?.();
 
-        if (typeof buildScopedGallery !== "function") {
-          console.warn("[MGLB] buildScopedGallery() missing in Media module.");
-          return;
-        }
-
         const { items, startIndex } = buildScopedGallery(trigger);
+
         if (!items || !items.length) {
-          console.warn("[MGLB] No items found for lightbox.");
+          console.warn("[MGLB] No items found. Use <img>/.js-visual for images, or data-video/data-video-id for videos.");
           return;
         }
 
-        try { openModal(); } catch (e) { console.warn("[MGLB] openModal failed:", e); return; }
-        try { mountSlides(items); } catch (e) {}
-
-        setTimeout(() => {
-          try { initSwipers(startIndex); } catch (e) {}
-        }, 50);
+        openModal();
+        mountSlides(items);
+        setTimeout(() => initSwipers(startIndex), 50);
       };
 
       document.addEventListener("click", state.onDocClick, true);
@@ -1277,7 +1657,7 @@
   function MediaDestroy() {
     clearStopInterval();
 
-    // AutoRecover cleanup
+    // Cleanup inline auto-recover
     if (typeof window.MediaAutoRecoverDestroy === "function") {
       try { window.MediaAutoRecoverDestroy(); }
       catch (e) { console.warn("[Media] MediaAutoRecoverDestroy failed:", e); }
@@ -1291,8 +1671,6 @@
       state.onDocClick = null;
     }
 
-    try { unbindMobileFilterNav(state.container || document); } catch (e) {}
-
     state.container = null;
     console.log("[Media] destroy ✅");
   }
@@ -1300,6 +1678,7 @@
   window.MediaBoot = MediaBoot;
   window.MediaDestroy = MediaDestroy;
 })();
+
 
 
 
