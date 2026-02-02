@@ -1385,25 +1385,63 @@ html.mglb-lock, body.mglb-lock { overflow: hidden !important; }
     return img ? (img.currentSrc || img.src || null) : null;
   }
 
-  function getVideoItemFromTrigger(trigger) {
-    // Allow attributes on trigger OR any child inside trigger
-    const host = trigger.matches?.("[data-video],[data-video-id]") ? trigger : trigger.querySelector?.("[data-video],[data-video-id]");
-    if (!host) return null;
+  function parseYouTubeId(url) {
+  if (!url) return null;
 
-    const kind = (host.getAttribute("data-video") || "").trim().toLowerCase();
-    if (kind !== "youtube") return null;
+  try {
+    const u = new URL(url, window.location.origin);
+    const host = (u.hostname || "").toLowerCase();
 
-    const vid = (host.getAttribute("data-video-id") || "").trim();
-    if (!vid) return null;
+    // youtu.be/VIDEOID
+    if (host.includes("youtu.be")) {
+      const id = (u.pathname || "").split("/").filter(Boolean)[0];
+      return id || null;
+    }
 
-    const thumb =
-      host.getAttribute("data-thumb") ||
-      trigger.getAttribute("data-thumb") ||
-      getThumbSrcFromTrigger(trigger) ||
-      `https://i.ytimg.com/vi/${encodeURIComponent(vid)}/hqdefault.jpg`;
+    // youtube.com/watch?v=VIDEOID
+    const v = u.searchParams.get("v");
+    if (v) return v;
 
-    return { type: "youtube", id: vid, thumb };
+    // youtube.com/embed/VIDEOID
+    const parts = (u.pathname || "").split("/").filter(Boolean);
+    const embedIdx = parts.indexOf("embed");
+    if (embedIdx >= 0 && parts[embedIdx + 1]) return parts[embedIdx + 1];
+
+    // youtube.com/shorts/VIDEOID
+    const shortsIdx = parts.indexOf("shorts");
+    if (shortsIdx >= 0 && parts[shortsIdx + 1]) return parts[shortsIdx + 1];
+
+    return null;
+  } catch (e) {
+    // Last-resort regex parsing
+    const s = String(url);
+    const m =
+      s.match(/[?&]v=([^&]+)/) ||
+      s.match(/youtu\.be\/([^?&/]+)/) ||
+      s.match(/\/embed\/([^?&/]+)/) ||
+      s.match(/\/shorts\/([^?&/]+)/);
+
+    return m ? m[1] : null;
   }
+}
+
+function getVideoItemFromTrigger(trigger) {
+  // Your contract: data-video contains a full YouTube URL
+  const url = (trigger.getAttribute("data-video") || "").trim();
+  if (!url) return null;
+
+  const id = parseYouTubeId(url);
+  if (!id) return null;
+
+  // Thumb: use your existing thumbnail image (.js-visual) if available
+  const thumb =
+    trigger.getAttribute("data-thumb") ||
+    getThumbSrcFromTrigger(trigger) ||
+    `https://i.ytimg.com/vi/${encodeURIComponent(id)}/hqdefault.jpg`;
+
+  return { type: "youtube", id, thumb };
+}
+
 
   function getImageItemFromTrigger(trigger) {
     const src = getThumbSrcFromTrigger(trigger);
@@ -1426,79 +1464,84 @@ html.mglb-lock, body.mglb-lock { overflow: hidden !important; }
   }
 
   function buildScopedGallery(clickedTrigger) {
-    const scopeRoot = getScopeRoot(clickedTrigger);
-    const triggers = Array.from(scopeRoot.querySelectorAll(TRIGGER_SELECTOR)).filter(isVisible);
+  const scopeRoot = getScopeRoot(clickedTrigger);
+  const triggers = Array.from(scopeRoot.querySelectorAll(TRIGGER_SELECTOR)).filter(isVisible);
 
-    const items = [];
-    let startIndex = 0;
+  const items = [];
+  let startIndex = 0;
 
-    triggers.forEach((t) => {
-      const videoItem = getVideoItemFromTrigger(t);
-      if (videoItem) {
-        if (t === clickedTrigger) startIndex = items.length;
-        items.push(videoItem);
-        return;
-      }
-
-      const imageItem = getImageItemFromTrigger(t);
-      if (!imageItem) return;
-
+  triggers.forEach((t) => {
+    const videoItem = getVideoItemFromTrigger(t);
+    if (videoItem) {
       if (t === clickedTrigger) startIndex = items.length;
-      items.push(imageItem);
-    });
+      items.push(videoItem);
+      return;
+    }
 
-    return { items, startIndex };
-  }
+    const src = getImageSrcFromTrigger(t);
+    if (!src) return;
+
+    const thumb = getThumbSrcFromTrigger(t) || src;
+    if (t === clickedTrigger) startIndex = items.length;
+
+    items.push({ type: "image", src, thumb });
+  });
+
+  return { items, startIndex };
+}
+
 
   function mountSlides(items) {
-    const { mainW, thumbsW } = getModalRefs();
-    if (!mainW || !thumbsW) return;
+  const { mainW, thumbsW } = getModalRefs();
+  if (!mainW || !thumbsW) return;
 
-    mainW.innerHTML = "";
-    thumbsW.innerHTML = "";
+  mainW.innerHTML = "";
+  thumbsW.innerHTML = "";
 
-    items.forEach((it) => {
-      const s = document.createElement("div");
-      s.className = "swiper-slide";
+  items.forEach((it) => {
+    const s = document.createElement("div");
+    s.className = "swiper-slide";
 
-      if (it.type === "youtube") {
-        const src =
-          `https://www.youtube-nocookie.com/embed/${encodeURIComponent(it.id)}` +
-          `?autoplay=0&mute=0&controls=1&modestbranding=1&playsinline=1&rel=0`;
-
-        s.innerHTML = `
-          <div class="mglb__video">
-            <iframe
-              src="${src}"
-              title="YouTube video"
-              allow="encrypted-media; picture-in-picture"
-              referrerpolicy="strict-origin-when-cross-origin"
-              allowfullscreen></iframe>
-          </div>
-        `;
-      } else {
-        s.innerHTML = `<img src="${it.src}" alt="" style="max-width:100%;max-height:100%;object-fit:contain;display:block;">`;
-      }
-
-      mainW.appendChild(s);
-    });
-
-    items.forEach((it) => {
-      const s = document.createElement("div");
-      s.className = "swiper-slide";
-
-      const thumbSrc = it.thumb || (it.type === "youtube"
-        ? `https://i.ytimg.com/vi/${encodeURIComponent(it.id)}/hqdefault.jpg`
-        : it.src);
+    if (it.type === "youtube") {
+      // Autoplay OFF
+      const src =
+        `https://www.youtube-nocookie.com/embed/${encodeURIComponent(it.id)}` +
+        `?autoplay=0&mute=0&controls=1&modestbranding=1&playsinline=1&rel=0`;
 
       s.innerHTML = `
-        <div style="position:relative;width:100%;height:100%;">
-          <img src="${thumbSrc}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:6px;">
+        <div class="mglb__video">
+          <iframe
+            src="${src}"
+            title="YouTube video"
+            allow="encrypted-media; picture-in-picture"
+            referrerpolicy="strict-origin-when-cross-origin"
+            allowfullscreen></iframe>
         </div>
       `;
-      thumbsW.appendChild(s);
-    });
-  }
+    } else {
+      s.innerHTML = `<img src="${it.src}" alt="" style="max-width:100%;max-height:100%;object-fit:contain;display:block;">`;
+    }
+
+    mainW.appendChild(s);
+  });
+
+  items.forEach((it) => {
+    const s = document.createElement("div");
+    s.className = "swiper-slide";
+
+    const thumbSrc = it.thumb || (it.type === "youtube"
+      ? `https://i.ytimg.com/vi/${encodeURIComponent(it.id)}/hqdefault.jpg`
+      : it.src);
+
+    s.innerHTML = `
+      <div style="position:relative;width:100%;height:100%;">
+        <img src="${thumbSrc}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:6px;">
+      </div>
+    `;
+    thumbsW.appendChild(s);
+  });
+}
+
 
   function setActiveThumb(idx) {
     if (!state.thumbsSwiper) return;
