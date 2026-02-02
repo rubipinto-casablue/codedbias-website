@@ -1856,11 +1856,25 @@ html.mglb-lock, body.mglb-lock { overflow: hidden !important; }
       document.addEventListener("click", state.onDocClick, true);
     }
 
+// Inline Webflow patch (empty results reset)
+if (typeof window.MediaPatchBoot === "function") {
+  try { window.MediaPatchBoot(state.container || document); }
+  catch (e) { console.warn("[Media] MediaPatchBoot failed:", e); }
+}
+
+     
     console.log("[Media] boot ✅ (fs-list restarted)");
   }
 
   function MediaDestroy() {
     clearStopInterval();
+
+     // Inline Webflow patch cleanup
+if (typeof window.MediaPatchDestroy === "function") {
+  try { window.MediaPatchDestroy(); }
+  catch (e) { console.warn("[Media] MediaPatchDestroy failed:", e); }
+}
+
 
     try { closeModal(); } catch (e) {}
     try { destroySwipers(); } catch (e) {}
