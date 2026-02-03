@@ -719,6 +719,7 @@ function initDisableCurrentFooterLinks() {
   }
 }
 
+
   /* =========================================================
      BOOT STABLE
   ========================================================= */
@@ -2480,6 +2481,95 @@ html.mglb-lock, body.mglb-lock { overflow: hidden !important; }
     };
   }
 
+/* =========================================================
+   ANCHOR ROUTER (Barba-safe, repeatable)
+   - Captures clicked hash before navigation
+   - Scrolls after transition even if location.hash is empty/unchanged
+========================================================= */
+const __anchorState = {
+  pendingHash: "",
+  pendingPath: "",
+  pendingHref: ""
+};
+
+function __normalizePathname(p) {
+  const s = (p || "/").trim();
+  const clean = s.replace(/\/+$/, "") || "/";
+  return clean;
+}
+
+function __captureAnchorClickOnce() {
+  if (window.__CBW_ANCHOR_CAPTURE_BOUND__) return;
+  window.__CBW_ANCHOR_CAPTURE_BOUND__ = true;
+
+  document.addEventListener("click", (e) => {
+    const a = e.target.closest?.("a[href]");
+    if (!a) return;
+
+    // Only your footer links (optional: keep it global by removing this if)
+    // if (!a.classList.contains("u-footer-link-wrap")) return;
+
+    const href = a.getAttribute("href");
+    if (!href || !href.includes("#")) return;
+
+    let url;
+    try { url = new URL(href, location.origin); } catch (_) { return; }
+
+    const targetHash = url.hash || "";
+    if (!targetHash) return;
+
+    __anchorState.pendingHash = targetHash;          // "#watch-film"
+    __anchorState.pendingPath = __normalizePathname(url.pathname);
+    __anchorState.pendingHref = url.href;
+
+    // If same page + same hash, browser won't "change" anything => force scroll now
+    const currentPath = __normalizePathname(location.pathname);
+    const samePage = currentPath === __anchorState.pendingPath;
+    const sameHash = targetHash === location.hash;
+
+    if (samePage && sameHash) {
+      e.preventDefault();
+      e.stopPropagation();
+      try { unlockScrollAll?.(); } catch (_) {}
+      try { forceAnchorToHash(targetHash, document); } catch (_) {}
+    }
+  }, true);
+}
+
+function forceAnchorToHash(hash, container = document, opts = {}) {
+  if (!hash) return false;
+
+  const scope = container || document;
+  const target = scope.querySelector(hash) || document.querySelector(hash);
+  if (!target) {
+    console.warn("[Anchor] Target not found:", hash);
+    return false;
+  }
+
+  const OFFSET = Number.isFinite(opts.offset) ? opts.offset : 0;
+  const top = target.getBoundingClientRect().top + window.pageYOffset - OFFSET;
+
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      try { window.scrollTo({ top, behavior: "smooth" }); }
+      catch (_) { window.scrollTo(0, top); }
+    });
+  });
+
+  return true;
+}
+
+// Keep your existing forceAnchor() if you want,
+// but make it use the new helper:
+function forceAnchor(container = document) {
+  return forceAnchorToHash(location.hash, container);
+}
+
+// Bind once
+__captureAnchorClickOnce();
+
+   
+
   /* -----------------------------
      BARBA
   ----------------------------- */
@@ -2572,9 +2662,28 @@ html.mglb-lock, body.mglb-lock { overflow: hidden !important; }
 
           // Apply anchor after unlock + after reveal + after layout settle
           try {
-            if (location.hash) {
-              setTimeout(() => forceAnchor(data?.next?.container || document), 80);
-            }
+           // Prefer captured hash (more reliable than location.hash with Barba timing)
+const nextPath = __normalizePathname(location.pathname);
+const wantHash =
+  (__anchorState.pendingPath === nextPath && __anchorState.pendingHash)
+    ? __anchorState.pendingHash
+    : location.hash;
+
+try {
+  if (wantHash) {
+    setTimeout(() => {
+      forceAnchorToHash(wantHash, data?.next?.container || document);
+
+      // Clear pending state after use
+      if (__anchorState.pendingPath === nextPath) {
+        __anchorState.pendingHash = "";
+        __anchorState.pendingPath = "";
+        __anchorState.pendingHref = "";
+      }
+    }, 80);
+  }
+} catch (_) {}
+
           } catch (e) {}
         }
       }
