@@ -661,57 +661,63 @@
     }
   }
 
-  /* =========================================================
-     6) DISABLE CURRENT FOOTER LINKS (Barba-safe)
-  ========================================================= */
-  function initDisableCurrentFooterLinks() {
-    const NAV_SELECTOR = ".footer_link";
+/* =========================================================
+   6) DISABLE CURRENT FOOTER LINKS (Barba-safe)
+   - Anchor links (#hash) must remain clickable
+========================================================= */
+function initDisableCurrentFooterLinks() {
+  const NAV_SELECTOR = ".footer_link";
 
-    function normalize(url) {
-      const u = new URL(url, location.origin);
-      let p = u.pathname.replace(/\/+$/, "") || "/";
-      // Compare path + search only (ignore hash so anchors are not broken)
-      return p + u.search;
-    }
-
-    function disableCurrentNavLinks(scope = document) {
-      const current = normalize(location.href);
-
-      scope.querySelectorAll(NAV_SELECTOR).forEach(a => {
-        // Safety: never touch lightbox links
-        if (a.classList.contains("w-lightbox") || a.closest(".w-lightbox")) return;
-
-        const link = normalize(a.href);
-        const isCurrent = link === current;
-
-        a.classList.toggle("is-current", isCurrent);
-
-        if (isCurrent) {
-          a.setAttribute("aria-current", "page");
-          a.setAttribute("aria-disabled", "true");
-          a.setAttribute("tabindex", "-1");
-          a.style.pointerEvents = "none";
-          a.style.cursor = "default";
-        } else {
-          a.removeAttribute("aria-current");
-          a.removeAttribute("aria-disabled");
-          a.removeAttribute("tabindex");
-          a.style.pointerEvents = "";
-          a.style.cursor = "";
-        }
-      });
-    }
-
-    onReady(() => disableCurrentNavLinks(document));
-
-    if (window.barba?.hooks) {
-      window.barba.hooks.afterEnter(({ next }) => {
-        disableCurrentNavLinks(next?.container || document);
-        // Also run on full document in case nav lives outside container
-        disableCurrentNavLinks(document);
-      });
-    }
+  function normalize(url) {
+    const u = new URL(url, location.origin);
+    let p = u.pathname.replace(/\/+$/, "") || "/";
+    // Compare path + search only (ignore hash so anchors are not broken)
+    return p + u.search;
   }
+
+  function disableCurrentNavLinks(scope = document) {
+    const current = normalize(location.href);
+
+    scope.querySelectorAll(NAV_SELECTOR).forEach(a => {
+      // Safety: never touch lightbox links
+      if (a.classList.contains("w-lightbox") || a.closest(".w-lightbox")) return;
+
+      // ✅ IMPORTANT: never disable anchor links
+      if (a.hash) return;
+
+      const link = normalize(a.href);
+      const isCurrent = link === current;
+
+      a.classList.toggle("is-current", isCurrent);
+
+      if (isCurrent) {
+        a.setAttribute("aria-current", "page");
+        a.setAttribute("aria-disabled", "true");
+        a.setAttribute("tabindex", "-1");
+        a.style.pointerEvents = "none";
+        a.style.cursor = "default";
+      } else {
+        a.removeAttribute("aria-current");
+        a.removeAttribute("aria-disabled");
+        a.removeAttribute("tabindex");
+        a.style.pointerEvents = "";
+        a.style.cursor = "";
+      }
+    });
+  }
+
+  // Initial run
+  disableCurrentNavLinks(document);
+
+  // Re-run after Barba page change
+  if (window.barba?.hooks) {
+    window.barba.hooks.afterEnter(({ next }) => {
+      disableCurrentNavLinks(next?.container || document);
+      // Also run on full document in case footer lives outside container
+      disableCurrentNavLinks(document);
+    });
+  }
+}
 
   /* =========================================================
      BOOT STABLE
@@ -2111,7 +2117,43 @@ html.mglb-lock, body.mglb-lock { overflow: hidden !important; }
       }
     }, true);
   }
+/* =========================================================
+   Anchor re-trigger
+   - Forces anchor scroll even when clicking the same URL+hash again.
+========================================================= */
+(function bindAnchorReTrigger() {
+  if (window.__CBW_ANCHOR_RETRIGGER__) return;
+  window.__CBW_ANCHOR_RETRIGGER__ = true;
 
+  document.addEventListener("click", (e) => {
+    const a = e.target.closest?.("a[href]");
+    if (!a) return;
+
+    const href = a.getAttribute("href");
+    if (!href || !href.includes("#")) return;
+
+    let url;
+    try { url = new URL(href, window.location.origin); } catch (_) { return; }
+
+    const currentPath = (location.pathname || "/").replace(/\/+$/, "") || "/";
+    const targetPath  = (url.pathname || "/").replace(/\/+$/, "") || "/";
+    const targetHash  = url.hash || "";
+
+    // Only handle same page + same hash
+    if (currentPath === targetPath && targetHash && targetHash === location.hash) {
+      e.preventDefault();
+      e.stopPropagation();
+
+      // Make sure scroll isn't blocked
+      try { unlockScrollAll?.(); } catch (_) {}
+
+      // Force the scroll
+      try { forceAnchor(document); } catch (_) {}
+    }
+  }, true);
+})();
+
+   
   /* -----------------------------
      ScrollTrigger freeze/unfreeze
   ----------------------------- */
