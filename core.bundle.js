@@ -1986,6 +1986,7 @@ html.mglb-lock, body.mglb-lock { overflow: hidden !important; }
 /* =========================================================
    SECTION E — CLEAN BARBA + WIPE + HUD + HOME PANELS (NO FORMS)
    - This is your SPA router + wipe + Webflow reinit.
+   - Includes robust hash anchor support (Barba-safe).
 ========================================================= */
 (() => {
   if (window.__CBW_BARBA_CORE__) return;
@@ -1996,6 +1997,18 @@ html.mglb-lock, body.mglb-lock { overflow: hidden !important; }
   ----------------------------- */
   if ("scrollRestoration" in history) history.scrollRestoration = "manual";
   try { if (window.barba) window.barba.destroy(); } catch (e) {}
+
+  /* -----------------------------
+     Guards
+  ----------------------------- */
+  if (!window.gsap) {
+    console.warn("[Barba/Wipe] GSAP not found. SPA disabled.");
+    return;
+  }
+  if (!window.barba) {
+    console.warn("[Barba/Wipe] Barba not found. SPA disabled.");
+    return;
+  }
 
   /* -----------------------------
      Helpers
@@ -2031,21 +2044,72 @@ html.mglb-lock, body.mglb-lock { overflow: hidden !important; }
     });
   }
 
-  function forceAnchor() {
-    if (!location.hash) return;
-    const id = location.hash.slice(1);
-    if (!id) return;
-    const target = document.getElementById(id);
-    if (!target) return;
+  /* =========================================================
+     Anchors (Barba-safe)
+     - Fix native hash jump (Barba intercepts navigation)
+     - Fix "same page + same hash" clicks (URL doesn't change)
+========================================================= */
+  function forceAnchor(container = document, opts = {}) {
+    const hash = window.location.hash;
+    if (!hash) return false;
 
-    const jump = () => {
-      try { target.scrollIntoView({ behavior: "auto", block: "start" }); } catch (e) {}
-    };
+    const scope = container || document;
 
-    requestAnimationFrame(() => requestAnimationFrame(jump));
-    window.addEventListener("load", jump, { once: true });
-    setTimeout(jump, 350);
-    setTimeout(jump, 900);
+    // Prefer next container, fallback to full document
+    const target = scope.querySelector(hash) || document.querySelector(hash);
+    if (!target) {
+      console.warn("[Anchor] Target not found:", hash);
+      return false;
+    }
+
+    // Optional fixed header/HUD offset
+    const OFFSET = Number.isFinite(opts.offset) ? opts.offset : 0;
+
+    const top = target.getBoundingClientRect().top + window.pageYOffset - OFFSET;
+
+    // Two RAFs helps after Barba swaps + layout + GSAP
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        try {
+          window.scrollTo({ top, behavior: "smooth" });
+        } catch (e) {
+          try { window.scrollTo(0, top); } catch (_) {}
+        }
+      });
+    });
+
+    return true;
+  }
+
+  function bindAnchorClickFallback() {
+    // Avoid double-binding
+    if (window.__CBW_ANCHOR_CLICK_BOUND__) return;
+    window.__CBW_ANCHOR_CLICK_BOUND__ = true;
+
+    document.addEventListener("click", (e) => {
+      const a = e.target.closest?.("a[href]");
+      if (!a) return;
+
+      const href = a.getAttribute("href");
+      if (!href || !href.includes("#")) return;
+
+      let url;
+      try { url = new URL(href, window.location.origin); } catch (_) { return; }
+
+      const currentPath = (window.location.pathname || "/").replace(/\/+$/, "") || "/";
+      const targetPath  = (url.pathname || "/").replace(/\/+$/, "") || "/";
+      const samePage = currentPath === targetPath;
+
+      const targetHash = url.hash || "";
+      const sameHash = targetHash && (targetHash === window.location.hash);
+
+      // Same page + same hash => browser won't update anything => force scroll
+      if (samePage && sameHash) {
+        e.preventDefault();
+        try { unlockScrollAll(); } catch (_) {}
+        forceAnchor(document);
+      }
+    }, true);
   }
 
   /* -----------------------------
@@ -2374,296 +2438,208 @@ html.mglb-lock, body.mglb-lock { overflow: hidden !important; }
     };
   }
 
-  /* =========================================================
-   ANCHORS (Barba-safe)
-   - Fix native hash jump (Barba intercepts navigation)
-   - Fix "same page + same hash" clicks (URL doesn't change)
-========================================================= */
+  /* -----------------------------
+     BARBA
+  ----------------------------- */
+  window.barba.init({
+    preventRunning: true,
 
-function forceAnchor(container = document, opts = {}) {
-  const hash = window.location.hash;
-  if (!hash) return false;
+    // Prevent Barba from hijacking Finsweet list clicks (filters)
+    prevent: ({ el }) => {
+      if (!el) return false;
+      if (el.closest('[fs-list-element], [fs-list-field], [fs-list-value]')) return true;
+      return false;
+    },
 
-  const scope = container || document;
+    transitions: [{
+      name: "wipe-stable-nojump",
 
-  // Find target inside container first, fallback to whole document
-  const target = scope.querySelector(hash) || document.querySelector(hash);
-  if (!target) {
-    console.warn("[Anchor] Target not found:", hash);
-    return false;
-  }
+      async leave(data) {
+        const current = data.current.container;
 
-  // Optional fixed header/HUD offset
-  const OFFSET = Number.isFinite(opts.offset) ? opts.offset : 0;
+        setHudFixed();
+        window.gsap.killTweensOf(wipe);
 
-  // Compute target top (more reliable than scrollIntoView for some layouts)
-  const top = target.getBoundingClientRect().top + window.pageYOffset - OFFSET;
+        freezeScrollTriggers();
+        lockScrollSoft();
 
-  // Two RAFs helps after Barba swaps + layout recalculation + GSAP
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      try {
-        window.scrollTo({ top, behavior: "smooth" });
-        // If you want instant (debug), replace with: window.scrollTo(0, top);
-        console.log("[Anchor] Scrolled to:", hash, "top:", top);
-      } catch (e) {
-        console.warn("[Anchor] scrollTo failed:", e);
+        current.style.visibility = "visible";
+        current.style.opacity = "1";
+
+        await gsapTo(wipe, {
+          y: "0%",
+          duration: MOVE_DURATION,
+          ease: "power4.inOut",
+          overwrite: true
+        });
+
+        lockScrollHardNow();
+        await delay(HOLD_DURATION);
+
+        current.style.visibility = "hidden";
+      },
+
+      beforeEnter(data) {
+        window.gsap.killTweensOf(wipe);
+        window.gsap.set(wipe, { y: "0%", autoAlpha: 1, display: "block" });
+
+        data.next.container.style.visibility = "visible";
+        data.next.container.style.opacity = "0";
+      },
+
+      async enter(data) {
+        data.next.container.style.opacity = "1";
+      },
+
+      async after(data) {
+        try {
+          if (!location.hash) hardScrollTop();
+
+          syncWebflowPageIdFromBarba(data);
+          reinitWebflowCore();
+          syncHomeNavState();
+
+          cleanupHomePanels();
+          setupHomePanels(data?.next?.container || document);
+
+          initGallerySwipers(data?.next?.container || document);
+
+          unfreezeScrollTriggers();
+          try { window.ScrollTrigger?.refresh?.(); } catch (e) {}
+
+        } catch (err) {
+          console.error("[Barba] after() crashed:", err);
+
+        } finally {
+          try {
+            window.gsap.killTweensOf(wipe);
+            await gsapTo(wipe, {
+              y: "-100%",
+              duration: MOVE_DURATION,
+              ease: "power4.inOut",
+              overwrite: true
+            });
+            window.gsap.set(wipe, { y: "100%" });
+          } catch (e) {
+            console.error("[Barba] Reveal failed:", e);
+            try { window.gsap.set(wipe, { y: "100%" }); } catch (_) {}
+          }
+
+          // Unlock scroll first, then apply anchor jump
+          try { unlockScrollAll(); } catch (e) {}
+
+          // Apply anchor after unlock + after reveal + after layout settle
+          try {
+            if (location.hash) {
+              setTimeout(() => forceAnchor(data?.next?.container || document), 80);
+            }
+          } catch (e) {}
+        }
+      }
+    }]
+  });
+
+  // Bind hash click fallback ONCE (persists across Barba containers)
+  bindAnchorClickFallback();
+
+  /* -----------------------------
+     BARBA hooks (namespace modules)
+     - media
+     - request-screening
+  ----------------------------- */
+  if (window.barba?.hooks) {
+
+    window.barba.hooks.beforeLeave((data) => {
+      const ns = data?.current?.namespace;
+
+      if (ns === "media" && typeof window.MediaDestroy === "function") {
+        window.MediaDestroy();
+      }
+
+      if (ns === "request-screening" && typeof window.RequestScreeningDestroy === "function") {
+        window.RequestScreeningDestroy();
       }
     });
-  });
 
-  return true;
-}
+    window.barba.hooks.afterEnter((data) => {
+      const ns = data?.next?.namespace;
 
-function bindAnchorClickFallback() {
-  // Avoid double-binding
-  if (window.__WT_ANCHOR_CLICK_BOUND__) return;
-  window.__WT_ANCHOR_CLICK_BOUND__ = true;
-
-  // Capture clicks so repeated clicks on same hash still scroll
-  document.addEventListener(
-    "click",
-    (e) => {
-      const a = e.target.closest?.("a[href]");
-      if (!a) return;
-
-      const href = a.getAttribute("href");
-      if (!href || !href.includes("#")) return;
-
-      // Normalize to an absolute URL
-      let url;
-      try {
-        url = new URL(href, window.location.origin);
-      } catch (_) {
-        return;
+      if (ns === "media" && typeof window.MediaBoot === "function") {
+        setTimeout(() => {
+          requestAnimationFrame(() => window.MediaBoot(data.next.container));
+        }, 0);
       }
 
-      const currentPath = window.location.pathname.replace(/\/+$/, "");
-      const targetPath = url.pathname.replace(/\/+$/, "");
-      const samePage = currentPath === targetPath;
-
-      const targetHash = url.hash || "";
-      const sameHash = targetHash && targetHash === window.location.hash;
-
-      // If same page + same hash, the browser won't "change" anything -> force scroll
-      if (samePage && sameHash) {
-        e.preventDefault();
-        try { unlockScrollAll(); } catch (_) {}
-        forceAnchor(document);
+      if (ns === "request-screening" && typeof window.RequestScreeningBoot === "function") {
+        setTimeout(() => {
+          requestAnimationFrame(() => window.RequestScreeningBoot(data.next.container));
+        }, 0);
       }
-    },
-    true
-  );
-}
+    });
+  }
 
-/* -----------------------------
-   BARBA
------------------------------ */
-if (!window.barba) {
-  console.warn("[Barba] Barba not found. SPA disabled.");
-  return;
-}
+  /* -----------------------------
+     First load
+  ----------------------------- */
+  document.addEventListener("DOMContentLoaded", () => {
+    setHudFixed();
 
-window.barba.init({
-  preventRunning: true,
+    if (!location.hash) hardScrollTopAfterPaint();
+    else forceAnchor(document);
 
-  // Prevent Barba from hijacking Finsweet list clicks (filters)
-  prevent: ({ el }) => {
-    if (!el) return false;
-    if (el.closest('[fs-list-element], [fs-list-field], [fs-list-value]')) return true;
-    return false;
-  },
+    reinitWebflowCore();
+    cleanupHomePanels();
+    setupHomePanels(document);
+    initGallerySwipers(document);
+    syncHomeNavState();
 
-  transitions: [{
-    name: "wipe-stable-nojump",
-
-    async leave(data) {
-      const current = data.current.container;
-
-      setHudFixed();
-      window.gsap.killTweensOf(wipe);
-
-      freezeScrollTriggers();
-      lockScrollSoft();
-
-      current.style.visibility = "visible";
-      current.style.opacity = "1";
-
-      await gsapTo(wipe, {
-        y: "0%",
-        duration: MOVE_DURATION,
-        ease: "power4.inOut",
-        overwrite: true
-      });
-
-      lockScrollHardNow();
-      await delay(HOLD_DURATION);
-
-      current.style.visibility = "hidden";
-    },
-
-    beforeEnter(data) {
-      window.gsap.killTweensOf(wipe);
-      window.gsap.set(wipe, { y: "0%", autoAlpha: 1, display: "block" });
-
-      data.next.container.style.visibility = "visible";
-      data.next.container.style.opacity = "0";
-    },
-
-    async enter(data) {
-      data.next.container.style.opacity = "1";
-    },
-
-    async after(data) {
-      try {
-        if (!location.hash) hardScrollTop();
-
-        syncWebflowPageIdFromBarba(data);
-        reinitWebflowCore();
-        syncHomeNavState();
-
-        cleanupHomePanels();
-        setupHomePanels(data?.next?.container || document);
-
-        initGallerySwipers(data?.next?.container || document);
-
-        unfreezeScrollTriggers();
-        try { window.ScrollTrigger?.refresh?.(); } catch (e) {}
-
-      } catch (err) {
-        console.error("[Barba] after() crashed:", err);
-
-      } finally {
-        try {
-          window.gsap.killTweensOf(wipe);
-          await gsapTo(wipe, {
-            y: "-100%",
-            duration: MOVE_DURATION,
-            ease: "power4.inOut",
-            overwrite: true
-          });
-          window.gsap.set(wipe, { y: "100%" });
-        } catch (e) {
-          console.error("[Barba] Reveal failed:", e);
-          try { window.gsap.set(wipe, { y: "100%" }); } catch (_) {}
-        }
-
-        // Unlock scroll first, then apply anchor jump
-        try { unlockScrollAll(); } catch (e) {}
-
-        // ✅ Anchor jump after unlock + after reveal
-        // Use next.container if possible (more reliable with Barba)
-        try {
-          if (location.hash) {
-            // Small delay helps if layout is still settling after reinit/refresh
-            setTimeout(() => forceAnchor(data?.next?.container || document), 60);
-          }
-        } catch (e) {}
-      }
-    }
-  }]
-});
-
-/* ✅ Bind the click fallback AFTER barba.init so it persists */
-bindAnchorClickFallback();
-
-/* -----------------------------
-   BARBA hooks (namespace modules)
-   - media
-   - request-screening
------------------------------ */
-if (window.barba?.hooks) {
-
-  window.barba.hooks.beforeLeave((data) => {
-    const ns = data?.current?.namespace;
-
-    if (ns === "media" && typeof window.MediaDestroy === "function") {
-      window.MediaDestroy();
-    }
-
-    if (ns === "request-screening" && typeof window.RequestScreeningDestroy === "function") {
-      window.RequestScreeningDestroy();
-    }
-  });
-
-  window.barba.hooks.afterEnter((data) => {
-    const ns = data?.next?.namespace;
+    // If landing directly on a namespace page
+    const container = document.querySelector('[data-barba="container"]');
+    const ns = container?.getAttribute("data-barba-namespace");
 
     if (ns === "media" && typeof window.MediaBoot === "function") {
-      setTimeout(() => {
-        requestAnimationFrame(() => window.MediaBoot(data.next.container));
-      }, 0);
+      setTimeout(() => requestAnimationFrame(() => window.MediaBoot(container)), 0);
     }
 
     if (ns === "request-screening" && typeof window.RequestScreeningBoot === "function") {
-      setTimeout(() => {
-        requestAnimationFrame(() => window.RequestScreeningBoot(data.next.container));
-      }, 0);
+      setTimeout(() => requestAnimationFrame(() => window.RequestScreeningBoot(container)), 0);
+    }
+
+    console.log("[Barba/Wipe] init ✅ (+namespace hooks)");
+  });
+
+  /* -----------------------------
+     BFCache
+  ----------------------------- */
+  window.addEventListener("pageshow", (evt) => {
+    if (!evt.persisted) return;
+
+    unlockScrollAll();
+    unfreezeScrollTriggers();
+
+    if (!location.hash) hardScrollTopAfterPaint();
+    else forceAnchor(document);
+
+    try { window.gsap.set(wipe, { y: "100%", autoAlpha: 1, display: "block" }); } catch (e) {}
+    try { setHudFixed(); } catch (e) {}
+
+    reinitWebflowCore();
+    cleanupHomePanels();
+    setupHomePanels(document);
+    syncHomeNavState();
+
+    const container = document.querySelector('[data-barba="container"]');
+    const ns = container?.getAttribute("data-barba-namespace");
+
+    if (ns === "media" && typeof window.MediaBoot === "function") {
+      setTimeout(() => requestAnimationFrame(() => window.MediaBoot(container)), 0);
+    }
+
+    if (ns === "request-screening" && typeof window.RequestScreeningBoot === "function") {
+      setTimeout(() => requestAnimationFrame(() => window.RequestScreeningBoot(container)), 0);
     }
   });
-}
 
-/* -----------------------------
-   First load
------------------------------ */
-document.addEventListener("DOMContentLoaded", () => {
-  setHudFixed();
+  window.__initGallerySwipers = initGallerySwipers;
+})();
 
-  if (!location.hash) hardScrollTopAfterPaint();
-  else forceAnchor(document);
-
-  reinitWebflowCore();
-  cleanupHomePanels();
-  setupHomePanels(document);
-  initGallerySwipers(document);
-  syncHomeNavState();
-
-  // If landing directly on a namespace page
-  const container = document.querySelector('[data-barba="container"]');
-  const ns = container?.getAttribute("data-barba-namespace");
-
-  if (ns === "media" && typeof window.MediaBoot === "function") {
-    setTimeout(() => requestAnimationFrame(() => window.MediaBoot(container)), 0);
-  }
-
-  if (ns === "request-screening" && typeof window.RequestScreeningBoot === "function") {
-    setTimeout(() => requestAnimationFrame(() => window.RequestScreeningBoot(container)), 0);
-  }
-
-  console.log("[Barba/Wipe] init ✅ (+namespace hooks)");
-});
-
-/* -----------------------------
-   BFCache
------------------------------ */
-window.addEventListener("pageshow", (evt) => {
-  if (!evt.persisted) return;
-
-  unlockScrollAll();
-  unfreezeScrollTriggers();
-
-  if (!location.hash) hardScrollTopAfterPaint();
-  else forceAnchor(document);
-
-  try { window.gsap.set(wipe, { y: "100%", autoAlpha: 1, display: "block" }); } catch (e) {}
-  try { setHudFixed(); } catch (e) {}
-
-  reinitWebflowCore();
-  cleanupHomePanels();
-  setupHomePanels(document);
-  syncHomeNavState();
-
-  const container = document.querySelector('[data-barba="container"]');
-  const ns = container?.getAttribute("data-barba-namespace");
-
-  if (ns === "media" && typeof window.MediaBoot === "function") {
-    setTimeout(() => requestAnimationFrame(() => window.MediaBoot(container)), 0);
-  }
-
-  if (ns === "request-screening" && typeof window.RequestScreeningBoot === "function") {
-    setTimeout(() => requestAnimationFrame(() => window.RequestScreeningBoot(container)), 0);
-  }
-});
-
-window.__initGallerySwipers = initGallerySwipers;
- 
