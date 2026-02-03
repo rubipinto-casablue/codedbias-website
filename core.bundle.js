@@ -666,7 +666,7 @@
    - Anchor links (#hash) must remain clickable
 ========================================================= */
 function initDisableCurrentFooterLinks() {
-  const NAV_SELECTOR = ".footer_link";
+  const NAV_SELECTOR = ".u-footer-link-wrap";
 
   function normalize(url) {
     const u = new URL(url, location.origin);
