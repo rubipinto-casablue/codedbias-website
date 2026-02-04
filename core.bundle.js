@@ -749,7 +749,7 @@ function initDisableCurrentFooterLinks() {
 
 
 /* =========================================================
-   SECTION B — NAV + TOURS SWIPER (UPDATED: Desktop wheel-only, Mobile swipe)
+   SECTION B — NAV + TOURS SWIPER (UPDATED: Desktop wheel-only, Mobile swipe, Start on current)
 ========================================================= */
 (() => {
   /**
@@ -886,6 +886,43 @@ function initDisableCurrentFooterLinks() {
     return window.matchMedia("(max-width: 767px), (pointer: coarse)").matches;
   }
 
+  /* =========================================================
+     ACTIVE SLIDE (Start swiper on current page)
+     - Match by pathname only (ignores hash/query)
+  ========================================================= */
+  function normalizeUrlForCompare(href) {
+    try {
+      const u = new URL(href, location.origin);
+      const p = (u.pathname || "/").replace(/\/+$/, "") || "/";
+      return p;
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function findActiveTourSlideIndex(sw) {
+    if (!sw || !sw.slides) return 0;
+
+    const currentPath = normalizeUrlForCompare(location.href);
+
+    // Only real slides (ignore your spacer)
+    const slides = Array.from(sw.slides).filter(
+      (el) => el.classList?.contains("swiper-slide") && !el.classList.contains("nav-tour-spacer")
+    );
+
+    for (let i = 0; i < slides.length; i++) {
+      const a = slides[i].querySelector("a[href]");
+      if (!a) continue;
+
+      const linkPath = normalizeUrlForCompare(a.getAttribute("href"));
+      if (!linkPath) continue;
+
+      if (linkPath === currentPath) return i;
+    }
+
+    return 0;
+  }
+
   function initNavToursSwiper(scope = document) {
     if (!window.Swiper) {
       console.warn("[NavToursSwiper] Swiper is not loaded.");
@@ -905,7 +942,6 @@ function initDisableCurrentFooterLinks() {
     }
 
     if (navToursSwiper && typeof navToursSwiper.destroy === "function") {
-      // Normal re-init in same mode
       navToursSwiper.destroy(true, true);
       navToursSwiper = null;
     }
@@ -914,28 +950,17 @@ function initDisableCurrentFooterLinks() {
     // - Desktop: wheel/trackpad scrolling only (no drag), clicks always win
     // - Mobile: swipe enabled (expected gesture)
     const interactionDesktop = {
-      // Hard-disable drag/swipe on desktop so link clicks never get stolen
       allowTouchMove: false,
       simulateTouch: false,
-
-      // Keep wheel enabled for trackpads / horizontal scroll gestures
       mousewheel: { forceToAxis: true, sensitivity: 1 },
-
-      // Extra safety: if anything becomes draggable, links still win
       noSwiping: true,
       noSwipingSelector: "a, .w-inline-block, [data-no-swiper]"
     };
 
     const interactionMobile = {
-      // Enable swipe on mobile (expected)
       allowTouchMove: true,
       simulateTouch: true,
-
-      // Wheel not relevant on mobile
       mousewheel: false,
-
-      // On mobile we want swipe to work even if the card is a link
-      // (Swiper will still avoid accidental clicks on real drags)
       noSwiping: false
     };
 
@@ -964,7 +989,6 @@ function initDisableCurrentFooterLinks() {
 
       keyboard: { enabled: true, onlyInViewport: true, pageUpDown: false },
 
-      // Apply interaction strategy per mode
       ...(isMobile ? interactionMobile : interactionDesktop),
 
       on: {
@@ -976,7 +1000,6 @@ function initDisableCurrentFooterLinks() {
         },
 
         resize(sw) {
-          // If mode changes mid-session (rotate / resize), rebuild via updateNavToursSwiper()
           ensureNavToursEndSpacer(sw);
           sw.update();
           applyEndHardStop(sw);
@@ -1063,12 +1086,14 @@ function initDisableCurrentFooterLinks() {
     lockScroll();
     navTL.play(0);
 
+    // IMPORTANT: after panel animation/layout settles, update swiper then jump to active page slide
     setTimeout(() => {
       updateNavToursSwiper();
 
       const sw = window.navToursSwiper;
       if (sw && typeof sw.slideTo === "function") {
-        sw.slideTo(0, 0);
+        const activeIndex = findActiveTourSlideIndex(sw);
+        sw.slideTo(activeIndex, 0);
         sw.update();
       }
     }, 150);
@@ -1152,7 +1177,6 @@ function initDisableCurrentFooterLinks() {
     });
   }
 })();
-
 
 
 
