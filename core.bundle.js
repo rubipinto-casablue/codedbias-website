@@ -2794,3 +2794,29 @@ try {
   window.__initGallerySwipers = initGallerySwipers;
 })();
 
+
+(() => {
+  /* =========================================================
+     Force Barba navigation for media preset links
+     - Ensures wipe transition runs
+     ========================================================= */
+
+  document.addEventListener("click", (e) => {
+    const a = e.target.closest?.('a[data-media-preset]');
+    if (!a) return;
+
+    // If Barba is not available, let the browser navigate normally
+    if (!window.barba?.go) return;
+
+    // Only handle same-origin navigations
+    const url = new URL(a.href, location.href);
+    if (url.origin !== location.origin) return;
+
+    // Prevent hard navigation and let Barba handle the transition (wipe)
+    e.preventDefault();
+    window.barba.go(url.href);
+  }, true);
+})();
+
+
+
