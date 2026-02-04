@@ -1127,11 +1127,16 @@ function initDisableCurrentFooterLinks() {
     return state.container || document.querySelector('[data-barba="container"]');
   }
 
-  function isInMedia() {
-    const c = getContainer();
-    const ns = (c?.getAttribute("data-barba-namespace") || "").trim();
-    return ns === NS;
-  }
+ function isInMedia() {
+  const c = getContainer();
+
+  // Guard: getAttribute only exists on real DOM Elements
+  if (!c || typeof c.getAttribute !== "function") return false;
+
+  const ns = (c.getAttribute("data-barba-namespace") || "").trim();
+  return ns === NS;
+}
+
 
   function getStopParam() {
     const v = new URLSearchParams(window.location.search).get("stop");
