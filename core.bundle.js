@@ -749,7 +749,7 @@ function initDisableCurrentFooterLinks() {
 
 
 /* =========================================================
-   SECTION B — NAV + TOURS SWIPER (STABLE / UPDATED)
+   SECTION B — NAV + TOURS SWIPER (UPDATED: Desktop wheel-only, Mobile swipe)
 ========================================================= */
 (() => {
   /**
@@ -792,6 +792,8 @@ function initDisableCurrentFooterLinks() {
   if (iconOpen && iconClose) {
     window.gsap.set(iconOpen, { y: "0rem" });
     window.gsap.set(iconClose, { y: "3rem" });
+  } else {
+    console.warn("[NAV] Toggle icons not found (optional).", { iconOpen, iconClose });
   }
 
   window.gsap.set(backdrop, { opacity: 0, pointerEvents: "none" });
@@ -800,16 +802,22 @@ function initDisableCurrentFooterLinks() {
   let savedScrollY = 0;
 
   function lockScroll() {
-    savedScrollY = window.scrollY || 0;
+    savedScrollY = window.scrollY || window.pageYOffset || 0;
+
     document.body.style.position = "fixed";
     document.body.style.top = `-${savedScrollY}px`;
+    document.body.style.left = "0";
+    document.body.style.right = "0";
     document.body.style.width = "100%";
   }
 
   function unlockScroll() {
     document.body.style.position = "";
     document.body.style.top = "";
+    document.body.style.left = "";
+    document.body.style.right = "";
     document.body.style.width = "";
+
     window.scrollTo(0, savedScrollY);
   }
 
@@ -819,6 +827,7 @@ function initDisableCurrentFooterLinks() {
     const test = document.createElement("div");
     test.style.position = "absolute";
     test.style.left = "-9999px";
+    test.style.top = "-9999px";
     test.style.width = "calc(var(--_site-settings---site-padding))";
     document.body.appendChild(test);
     const px = test.getBoundingClientRect().width;
@@ -829,28 +838,33 @@ function initDisableCurrentFooterLinks() {
   function ensureNavToursEndSpacer(sw) {
     if (!sw || !sw.el) return;
 
-    const wrapper = sw.el.querySelector(".swiper-wrapper");
+    const root = sw.el;
+    const wrapper = root.querySelector(".swiper-wrapper");
     if (!wrapper) return;
 
-    wrapper.querySelector(".nav-tour-spacer")?.remove();
+    const prevSpacer = wrapper.querySelector(".nav-tour-spacer");
+    if (prevSpacer) prevSpacer.remove();
 
-    const slides = [...wrapper.children].filter(el =>
-      el.classList.contains("swiper-slide") &&
-      !el.classList.contains("nav-tour-spacer")
+    const realSlides = Array.from(wrapper.children).filter(
+      (el) =>
+        el.classList &&
+        el.classList.contains("swiper-slide") &&
+        !el.classList.contains("nav-tour-spacer")
     );
 
-    const last = slides.at(-1);
-    if (!last) return;
+    const lastSlide = realSlides[realSlides.length - 1];
+    if (!lastSlide) return;
 
-    const viewportW = sw.el.getBoundingClientRect().width;
-    const lastW = last.getBoundingClientRect().width;
-    const offset = sw.params.slidesOffsetBefore || 0;
+    const offsetBefore = sw.params.slidesOffsetBefore || 0;
+    const viewportW = root.getBoundingClientRect().width;
+    const lastW = lastSlide.getBoundingClientRect().width;
 
-    const spacerW = Math.max(viewportW - lastW - offset, 0);
+    const needed = Math.max(viewportW - lastW - offsetBefore, 0);
 
     const spacer = document.createElement("div");
     spacer.className = "swiper-slide nav-tour-spacer";
-    spacer.style.width = `${spacerW}px`;
+    spacer.style.width = `${needed}px`;
+    spacer.style.flex = "0 0 auto";
     spacer.style.pointerEvents = "none";
     spacer.style.opacity = "0";
 
@@ -858,57 +872,111 @@ function initDisableCurrentFooterLinks() {
   }
 
   function computeLastRealIndex(sw) {
-    return Math.max((sw.slides?.length || 0) - 2, 0);
+    return Math.max((sw?.slides?.length || 0) - 2, 0);
   }
 
   function applyEndHardStop(sw) {
     const lastReal = computeLastRealIndex(sw);
+    sw.__lastRealIndex = lastReal;
     sw.allowSlideNext = sw.activeIndex < lastReal;
   }
 
+  function getIsMobileMode() {
+    // Mobile/Touch-first: allow swipe
+    return window.matchMedia("(max-width: 767px), (pointer: coarse)").matches;
+  }
+
   function initNavToursSwiper(scope = document) {
-    if (!window.Swiper) return;
+    if (!window.Swiper) {
+      console.warn("[NavToursSwiper] Swiper is not loaded.");
+      return;
+    }
 
     const root = scope.querySelector(SELECTORS.toursSwiperRoot);
     if (!root) return;
 
-    navToursSwiper?.destroy?.(true, true);
+    const isMobile = getIsMobileMode();
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-    const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    // If we already have a swiper but breakpoint mode changed, rebuild it
+    if (navToursSwiper && navToursSwiper.__isMobileMode !== isMobile) {
+      try { navToursSwiper.destroy(true, true); } catch (e) {}
+      navToursSwiper = null;
+    }
 
-    navToursSwiper = new Swiper(root, {
+    if (navToursSwiper && typeof navToursSwiper.destroy === "function") {
+      // Normal re-init in same mode
+      navToursSwiper.destroy(true, true);
+      navToursSwiper = null;
+    }
+
+    // Desktop vs Mobile interaction strategy:
+    // - Desktop: wheel/trackpad scrolling only (no drag), clicks always win
+    // - Mobile: swipe enabled (expected gesture)
+    const interactionDesktop = {
+      // Hard-disable drag/swipe on desktop so link clicks never get stolen
+      allowTouchMove: false,
+      simulateTouch: false,
+
+      // Keep wheel enabled for trackpads / horizontal scroll gestures
+      mousewheel: { forceToAxis: true, sensitivity: 1 },
+
+      // Extra safety: if anything becomes draggable, links still win
+      noSwiping: true,
+      noSwipingSelector: "a, .w-inline-block, [data-no-swiper]"
+    };
+
+    const interactionMobile = {
+      // Enable swipe on mobile (expected)
+      allowTouchMove: true,
+      simulateTouch: true,
+
+      // Wheel not relevant on mobile
+      mousewheel: false,
+
+      // On mobile we want swipe to work even if the card is a link
+      // (Swiper will still avoid accidental clicks on real drags)
+      noSwiping: false
+    };
+
+    navToursSwiper = new window.Swiper(root, {
       freeMode: false,
       slidesPerView: "auto",
-      centeredSlides: false,
       slidesPerGroup: 1,
+      centeredSlides: false,
 
       slidesOffsetBefore: getSitePaddingPx(),
+      slidesOffsetAfter: 0,
+
       spaceBetween: 18,
       speed: reduceMotion ? 0 : 650,
-
       grabCursor: true,
       watchOverflow: true,
+
       observer: true,
       observeParents: true,
 
-      // -------- CRITICAL FIX --------
-      noSwiping: true,
-      noSwipingSelector: "a, .w-inline-block, [data-no-swiper]",
-      threshold: 8,
+      // Avoid any "click -> slideTo" behavior
       slideToClickedSlide: false,
-      mousewheel: false,
-      // --------------------------------
 
-      keyboard: { enabled: true, onlyInViewport: true },
+      // Reduce accidental "gesture" classification on mobile taps a bit
+      threshold: isMobile ? 8 : 0,
+
+      keyboard: { enabled: true, onlyInViewport: true, pageUpDown: false },
+
+      // Apply interaction strategy per mode
+      ...(isMobile ? interactionMobile : interactionDesktop),
 
       on: {
         init(sw) {
+          sw.__isMobileMode = isMobile;
           ensureNavToursEndSpacer(sw);
           sw.update();
           applyEndHardStop(sw);
         },
 
         resize(sw) {
+          // If mode changes mid-session (rotate / resize), rebuild via updateNavToursSwiper()
           ensureNavToursEndSpacer(sw);
           sw.update();
           applyEndHardStop(sw);
@@ -934,66 +1002,140 @@ function initDisableCurrentFooterLinks() {
     const sw = window.navToursSwiper;
     if (!sw) return;
 
+    const isMobile = getIsMobileMode();
+
+    // If breakpoint mode changed, rebuild so interaction strategy updates correctly
+    if (sw.__isMobileMode !== isMobile) {
+      initNavToursSwiper(document);
+      return;
+    }
+
     sw.params.slidesOffsetBefore = getSitePaddingPx();
     ensureNavToursEndSpacer(sw);
+
     sw.update();
+    sw.updateSlides();
+    sw.updateProgress();
+    sw.updateSlidesClasses();
+
     applyEndHardStop(sw);
   }
 
   let isOpen = false;
 
-  const navTL = gsap.timeline({
+  const navTL = window.gsap.timeline({
     paused: true,
     defaults: { ease: "power3.inOut", duration: 1.2 }
   });
 
   navTL
     .to(pageWrap, {
-      x: () => -navPanel.getBoundingClientRect().width
+      x: () => {
+        const navWidth = navPanel.getBoundingClientRect().width;
+        return -navWidth;
+      }
     }, 0)
     .to(pageWrap, { opacity: 0.6, filter: "blur(6px)" }, 0)
     .to(backdrop, { opacity: 1, duration: 0.35 }, 0)
     .to(navPanel, { x: "0%", opacity: 1 }, 0);
 
-  navTL.eventCallback("onReverseComplete", unlockScroll);
+  if (iconOpen && iconClose) {
+    navTL.to(iconOpen, { y: "-3rem", duration: 0.6, ease: "power2.inOut" }, 0);
+    navTL.to(iconClose, { y: "0rem",  duration: 0.6, ease: "power2.inOut" }, 0);
+  }
+
+  navTL.eventCallback("onReverseComplete", () => {
+    unlockScroll();
+
+    if (iconOpen && iconClose) {
+      window.gsap.set(iconOpen, { y: "0rem" });
+      window.gsap.set(iconClose, { y: "3rem" });
+    }
+  });
 
   function openNav() {
     if (isOpen) return;
     isOpen = true;
 
-    backdrop.style.pointerEvents = "auto";
-    navPanel.style.pointerEvents = "auto";
+    window.gsap.set(backdrop, { pointerEvents: "auto" });
+    window.gsap.set(navPanel, { pointerEvents: "auto" });
 
     lockScroll();
     navTL.play(0);
 
     setTimeout(() => {
       updateNavToursSwiper();
-      navToursSwiper?.slideTo(0, 0);
+
+      const sw = window.navToursSwiper;
+      if (sw && typeof sw.slideTo === "function") {
+        sw.slideTo(0, 0);
+        sw.update();
+      }
     }, 150);
   }
 
   function closeNav() {
-    if (!isOpen) return;
+    if (!isOpen && navTL.progress() === 0) return;
+
     isOpen = false;
 
-    backdrop.style.pointerEvents = "none";
-    navPanel.style.pointerEvents = "none";
+    window.gsap.set(backdrop, { pointerEvents: "none" });
+    window.gsap.set(navPanel, { pointerEvents: "none" });
 
     navTL.reverse();
+
+    try { window.ScrollTrigger?.refresh?.(); } catch (e) {}
   }
 
-  navBtn.addEventListener("click", e => {
+  function toggleNav() {
+    if (isOpen) closeNav();
+    else openNav();
+  }
+
+  navBtn.addEventListener("click", (e) => {
     e.preventDefault();
-    isOpen ? closeNav() : openNav();
+    toggleNav();
   });
 
-  backdrop.addEventListener("click", closeNav);
+  backdrop.addEventListener("click", () => closeNav());
 
-  navPanel.addEventListener("click", e => {
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeNav();
+  });
+
+  function isHomeRoute() {
+    const path = (window.location.pathname || "/").replace(/\/+$/, "") || "/";
+    return path === "/";
+  }
+
+  document.addEventListener("click", (e) => {
+    const homeLink = e.target.closest("a.nav-home-link");
+    if (!homeLink) return;
+    if (!isHomeRoute()) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+
+    closeNav();
+
+    const isHomeSlider = document.documentElement.classList.contains("is-home-slider");
+    if (isHomeSlider && typeof window.homePanelsGoToIntro === "function") {
+      window.homePanelsGoToIntro();
+    }
+  }, true);
+
+  navPanel.addEventListener("click", (e) => {
     const link = e.target.closest("a");
     if (!link) return;
     closeNav();
+  });
+
+  window.addEventListener("resize", () => {
+    if (!isOpen) return;
+
+    window.gsap.set(pageWrap, { x: -navPanel.getBoundingClientRect().width });
+    updateNavToursSwiper();
   });
 
   document.addEventListener("DOMContentLoaded", () => {
@@ -1001,13 +1143,16 @@ function initDisableCurrentFooterLinks() {
   });
 
   if (window.barba?.hooks) {
-    barba.hooks.afterEnter(({ next }) => {
-      initNavToursSwiper(next?.container || document);
+    window.barba.hooks.afterEnter((data) => {
+      initNavToursSwiper(data?.next?.container || document);
     });
 
-    barba.hooks.beforeLeave(closeNav);
+    window.barba.hooks.beforeLeave(() => {
+      closeNav();
+    });
   }
 })();
+
 
 
 
