@@ -2040,13 +2040,10 @@ html.mglb-lock,body.mglb-lock{overflow:hidden!important}`;
 
       async after(data) {
         try {
-          // Reset scroll position to top BEFORE anything else
-          // and update the soft-lock target so any stray scroll
-          // events during the reveal keep the page at 0
-          if (!location.hash) {
-            hardScrollTop();
-            _scrollBlockY = 0;
-          }
+          // ALWAYS reset scroll to top during transition
+          // (even with hash — we'll scroll to anchor AFTER the reveal)
+          hardScrollTop();
+          _scrollBlockY = 0;
 
           // Keep hard lock active during the entire reveal
           lockScrollHardNow();
@@ -2063,11 +2060,9 @@ html.mglb-lock,body.mglb-lock{overflow:hidden!important}`;
         } catch (err) {
           console.error("[Barba] after() crashed:", err);
         } finally {
-          // Force scroll top once more right before reveal starts
-          if (!location.hash) {
-            hardScrollTop();
-            _scrollBlockY = 0;
-          }
+          // Force scroll top right before reveal starts
+          hardScrollTop();
+          _scrollBlockY = 0;
 
           // Reveal wipe (scroll stays locked during this animation)
           try {
@@ -2079,13 +2074,14 @@ html.mglb-lock,body.mglb-lock{overflow:hidden!important}`;
             try { window.gsap.set(wipe, { y: "100%" }); } catch (_) {}
           }
 
-          // Final scroll reset before unlocking
-          if (!location.hash) hardScrollTop();
+          // Final scroll top before unlocking
+          hardScrollTop();
 
           // NOW unlock — user can scroll freely
           try { unlockScrollAll(); } catch (e) {}
 
-          // Anchor scroll with retries (handles late-rendering content like FS lists)
+          // Anchor scroll with retries (handles late-rendering FS lists)
+          // Page is now at top, so user sees smooth scroll DOWN to #anchor
           try {
             const nextPath = normalizePath(location.pathname);
             const wantHash = (anchorState.pendingPath === nextPath && anchorState.pendingHash)
