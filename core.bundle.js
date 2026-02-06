@@ -2080,8 +2080,9 @@ html.mglb-lock,body.mglb-lock{overflow:hidden!important}`;
           // NOW unlock — user can scroll freely
           try { unlockScrollAll(); } catch (e) {}
 
-          // Anchor scroll with retries (handles late-rendering FS lists)
-          // Page is now at top, so user sees smooth scroll DOWN to #anchor
+          // Anchor scroll with smart retries
+          // - Cancels if user scrolls manually
+          // - Only re-scrolls if target position changed (FS list re-rendered)
           try {
             const nextPath = normalizePath(location.pathname);
             const wantHash = (anchorState.pendingPath === nextPath && anchorState.pendingHash)
@@ -2090,21 +2091,50 @@ html.mglb-lock,body.mglb-lock{overflow:hidden!important}`;
 
             if (wantHash) {
               const scrollContainer = data?.next?.container || document;
+              const retryTimers = [];
+              let userScrolled = false;
+              let lastScrolledTo = -1;
 
-              // Three attempts: immediate, after FS list likely rendered, final safety
-              const retryDelays = [ANCHOR_FIRST_MS, ANCHOR_RETRY_MS, ANCHOR_FINAL_MS];
+              // Detect user scroll → cancel remaining retries
+              function onUserScroll() { userScrolled = true; cancelRetries(); }
+              window.addEventListener("wheel", onUserScroll, { once: true, passive: true });
+              window.addEventListener("touchstart", onUserScroll, { once: true, passive: true });
 
-              retryDelays.forEach(ms => {
-                setTimeout(() => scrollToHash(wantHash, scrollContainer), ms);
+              function cancelRetries() {
+                retryTimers.forEach(id => clearTimeout(id));
+                retryTimers.length = 0;
+                window.removeEventListener("wheel", onUserScroll);
+                window.removeEventListener("touchstart", onUserScroll);
+              }
+
+              function smartScroll() {
+                if (userScrolled) return;
+
+                const target = scrollContainer.querySelector(wantHash) || document.querySelector(wantHash);
+                if (!target) return;
+
+                const top = Math.round(target.getBoundingClientRect().top + window.pageYOffset);
+
+                // Skip if we already scrolled here (position hasn't changed)
+                if (Math.abs(top - lastScrolledTo) < 50) return;
+
+                lastScrolledTo = top;
+                scrollToHash(wantHash, scrollContainer);
+              }
+
+              // Three attempts: immediate, after FS renders, final safety
+              [ANCHOR_FIRST_MS, ANCHOR_RETRY_MS, ANCHOR_FINAL_MS].forEach(ms => {
+                retryTimers.push(setTimeout(smartScroll, ms));
               });
 
-              // Clean up pending state after last attempt
-              setTimeout(() => {
+              // Cleanup after last attempt
+              retryTimers.push(setTimeout(() => {
+                cancelRetries();
                 if (anchorState.pendingPath === nextPath) {
                   anchorState.pendingHash = "";
                   anchorState.pendingPath = "";
                 }
-              }, ANCHOR_FINAL_MS + 50);
+              }, ANCHOR_FINAL_MS + 50));
             }
           } catch (e) {}
         }
