@@ -2187,405 +2187,10 @@ html.mglb-lock, body.mglb-lock { overflow: hidden !important; }
 })();
 
 
-/* =========================================================
-   SECTION E — CLEAN BARBA + WIPE + HUD + HOME PANELS (NO FORMS)
-   - This is your SPA router + wipe + Webflow reinit.
-   - Includes robust hash anchor support (Barba-safe).
-========================================================= */
-(() => {
-  if (window.__CBW_BARBA_CORE__) return;
-  window.__CBW_BARBA_CORE__ = true;
-
-  /* -----------------------------
-     Safety / reset
-  ----------------------------- */
-  if ("scrollRestoration" in history) history.scrollRestoration = "manual";
-  try { if (window.barba) window.barba.destroy(); } catch (e) {}
-
-  /* -----------------------------
-     Guards
-  ----------------------------- */
-  if (!window.gsap) {
-    console.warn("[Barba/Wipe] GSAP not found. SPA disabled.");
-    return;
-  }
-  if (!window.barba) {
-    console.warn("[Barba/Wipe] Barba not found. SPA disabled.");
-    return;
-  }
-
-  /* -----------------------------
-     Helpers
-  ----------------------------- */
-  function qs(sel, root = document) { return root.querySelector(sel); }
-  function numberWithZero(num) { return num < 10 ? "0" + num : String(num); }
-
-  function gsapTo(target, vars) {
-    return new Promise(resolve => window.gsap.to(target, { ...vars, onComplete: resolve }));
-  }
-
-  function delay(seconds) {
-    return new Promise(resolve => setTimeout(resolve, seconds * 1000));
-  }
-
-  function hardScrollTop() {
-    try {
-      document.documentElement.style.scrollBehavior = "auto";
-      document.body.style.scrollBehavior = "auto";
-      document.documentElement.scrollTop = 0;
-      document.body.scrollTop = 0;
-      window.scrollTo(0, 0);
-    } catch (e) {}
-  }
-
-  function hardScrollTopAfterPaint() {
-    requestAnimationFrame(() => {
-      hardScrollTop();
-      requestAnimationFrame(() => {
-        hardScrollTop();
-        setTimeout(hardScrollTop, 60);
-      });
-    });
-  }
-
-  /* =========================================================
-     Anchors (Barba-safe)
-     - Fix native hash jump (Barba intercepts navigation)
-     - Fix "same page + same hash" clicks (URL doesn't change)
-========================================================= */
-  function forceAnchor(container = document, opts = {}) {
-    const hash = window.location.hash;
-    if (!hash) return false;
-
-    const scope = container || document;
-
-    // Prefer next container, fallback to full document
-    const target = scope.querySelector(hash) || document.querySelector(hash);
-    if (!target) {
-      console.warn("[Anchor] Target not found:", hash);
-      return false;
-    }
-
-    // Optional fixed header/HUD offset
-    const OFFSET = Number.isFinite(opts.offset) ? opts.offset : 0;
-
-    const top = target.getBoundingClientRect().top + window.pageYOffset - OFFSET;
-
-    // Two RAFs helps after Barba swaps + layout + GSAP
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        try {
-          window.scrollTo({ top, behavior: "smooth" });
-        } catch (e) {
-          try { window.scrollTo(0, top); } catch (_) {}
-        }
-      });
-    });
-
-    return true;
-  }
-
-  function bindAnchorClickFallback() {
-    // Avoid double-binding
-    if (window.__CBW_ANCHOR_CLICK_BOUND__) return;
-    window.__CBW_ANCHOR_CLICK_BOUND__ = true;
-
-    document.addEventListener("click", (e) => {
-      const a = e.target.closest?.("a[href]");
-      if (!a) return;
-
-      const href = a.getAttribute("href");
-      if (!href || !href.includes("#")) return;
-
-      let url;
-      try { url = new URL(href, window.location.origin); } catch (_) { return; }
-
-      const currentPath = (window.location.pathname || "/").replace(/\/+$/, "") || "/";
-      const targetPath  = (url.pathname || "/").replace(/\/+$/, "") || "/";
-      const samePage = currentPath === targetPath;
-
-      const targetHash = url.hash || "";
-      const sameHash = targetHash && (targetHash === window.location.hash);
-
-      // Same page + same hash => browser won't update anything => force scroll
-      if (samePage && sameHash) {
-        e.preventDefault();
-        try { unlockScrollAll(); } catch (_) {}
-        forceAnchor(document);
-      }
-    }, true);
-  }
-
-  /* =========================================================
-     Anchor re-trigger
-     - Forces anchor scroll even when clicking the same URL+hash again.
-  ========================================================= */
-  (function bindAnchorReTrigger() {
-    if (window.__CBW_ANCHOR_RETRIGGER__) return;
-    window.__CBW_ANCHOR_RETRIGGER__ = true;
-
-    document.addEventListener("click", (e) => {
-      const a = e.target.closest?.("a[href]");
-      if (!a) return;
-
-      const href = a.getAttribute("href");
-      if (!href || !href.includes("#")) return;
-
-      let url;
-      try { url = new URL(href, window.location.origin); } catch (_) { return; }
-
-      const currentPath = (location.pathname || "/").replace(/\/+$/, "") || "/";
-      const targetPath  = (url.pathname || "/").replace(/\/+$/, "") || "/";
-      const targetHash  = url.hash || "";
-
-      // Only handle same page + same hash
-      if (currentPath === targetPath && targetHash && targetHash === location.hash) {
-        e.preventDefault();
-        e.stopPropagation();
-
-        // Make sure scroll isn't blocked
-        try { unlockScrollAll?.(); } catch (_) {}
-
-        // Force the scroll
-        try { forceAnchor(document); } catch (_) {}
-      }
-    }, true);
-  })();
-
-  /* -----------------------------
-     ScrollTrigger freeze/unfreeze
-  ----------------------------- */
-  function freezeScrollTriggers() {
-    try { window.ScrollTrigger?.getAll?.().forEach(st => st.disable(false)); } catch (e) {}
-  }
-
-  function unfreezeScrollTriggers() {
-    try { window.ScrollTrigger?.getAll?.().forEach(st => st.enable()); } catch (e) {}
-  }
-
-  /* -----------------------------
-     Soft lock scroll (transition helper)
-  ----------------------------- */
-  let _scrollBlockOn = false;
-  let _scrollBlockY = 0;
-  let _onWheel = null, _onTouchMove = null, _onKeyDown = null;
-
-  function lockScrollSoft() {
-    if (_scrollBlockOn) return;
-    _scrollBlockOn = true;
-
-    _scrollBlockY = window.scrollY || 0;
-
-    _onWheel = (e) => { e.preventDefault(); window.scrollTo(0, _scrollBlockY); };
-    _onTouchMove = (e) => { e.preventDefault(); window.scrollTo(0, _scrollBlockY); };
-    _onKeyDown = (e) => {
-      const keys = ["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "];
-      if (keys.includes(e.key)) {
-        e.preventDefault();
-        window.scrollTo(0, _scrollBlockY);
-      }
-    };
-
-    window.addEventListener("wheel", _onWheel, { passive: false });
-    window.addEventListener("touchmove", _onTouchMove, { passive: false });
-    window.addEventListener("keydown", _onKeyDown, { passive: false });
-  }
-
-  function lockScrollHardNow() {
-    document.documentElement.style.overflow = "hidden";
-    document.body.style.overflow = "hidden";
-    document.body.style.touchAction = "none";
-  }
-
-  function unlockScrollAll() {
-    if (_scrollBlockOn) {
-      _scrollBlockOn = false;
-      window.removeEventListener("wheel", _onWheel, { passive: false });
-      window.removeEventListener("touchmove", _onTouchMove, { passive: false });
-      window.removeEventListener("keydown", _onKeyDown, { passive: false });
-      _onWheel = _onTouchMove = _onKeyDown = null;
-    }
-
-    document.documentElement.style.overflow = "";
-    document.body.style.overflow = "";
-    document.body.style.touchAction = "";
-  }
-
-  /* -----------------------------
-     Swiper init (Barba-safe) — Home gallery comp
-  ----------------------------- */
-  function initGallerySwipers(scope = document) {
-    if (!window.Swiper) {
-      console.warn("[Swiper] Swiper not found.");
-      return;
-    }
-    if (!window.jQuery && !window.$) {
-      console.warn("[Swiper] jQuery not found.");
-      return;
-    }
-
-    const $ = window.jQuery || window.$;
-
-    function getInitialIndex($wrap) {
-      const $slides = $wrap.find(".swiper.slider-text .swiper-slide");
-      if (!$slides.length) return 0;
-
-      const $flag = $wrap.find(".swiper.slider-text .js-swiper-start-flag").first();
-      if (!$flag.length) return 0;
-
-      const $slide = $flag.closest(".swiper-slide");
-      const idx = $slides.index($slide);
-
-      return idx >= 0 ? idx : 0;
-    }
-
-    $(scope).find(".slider-gallery-comp").each(function () {
-      const $wrap = $(this);
-
-      if ($wrap.data("swiper-inited") === 1) return;
-      $wrap.data("swiper-inited", 1);
-
-      const totalSlides = numberWithZero($wrap.find(".swiper-slide.slider-thumb").length);
-      $wrap.find(".swiper-number-total").text(totalSlides);
-
-      const START_INDEX = getInitialIndex($wrap);
-
-      const bgSwiper = new window.Swiper($wrap.find(".swiper.slider-bg")[0], {
-        slidesPerView: 1,
-        speed: 700,
-        effect: "fade",
-        allowTouchMove: false,
-        initialSlide: START_INDEX
-      });
-
-      const thumbsSwiper = new window.Swiper($wrap.find(".swiper.slider-thumb")[0], {
-        slidesPerView: 1,
-        speed: 700,
-        effect: "coverflow",
-        coverflowEffect: { rotate: 0, scale: 1, slideShadows: false },
-        loop: true,
-        loopedSlides: 8,
-        slideToClickedSlide: true,
-        initialSlide: START_INDEX
-      });
-
-      const isDesktop = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
-
-      const textSwiper = new window.Swiper($wrap.find(".swiper.slider-text")[0], {
-        slidesPerView: "auto",
-        speed: 1000,
-        loop: true,
-        loopedSlides: 8,
-        slideToClickedSlide: true,
-        allowTouchMove: !isDesktop,
-        simulateTouch: !isDesktop,
-        mousewheel: true,
-        keyboard: true,
-        centeredSlides: true,
-        slideActiveClass: "is-active",
-        slideDuplicateActiveClass: "is-active",
-        thumbs: { swiper: bgSwiper },
-        navigation: {
-          nextEl: $wrap.find(".swiper-next")[0],
-          prevEl: $wrap.find(".swiper-prev")[0]
-        },
-        initialSlide: START_INDEX
-      });
-
-      textSwiper.controller.control = thumbsSwiper;
-      thumbsSwiper.controller.control = textSwiper;
-
-      try {
-        textSwiper.slideToLoop(START_INDEX, 0, false);
-        thumbsSwiper.slideToLoop(START_INDEX, 0, false);
-        bgSwiper.slideTo(START_INDEX, 0, false);
-      } catch (e) {}
-
-      $wrap.find(".swiper-number-current").text(numberWithZero(START_INDEX + 1));
-      textSwiper.on("slideChange", function (e) {
-        $wrap.find(".swiper-number-current").text(numberWithZero(e.realIndex + 1));
-      });
-
-      $wrap.data("swiper-bg", bgSwiper);
-      $wrap.data("swiper-thumbs", thumbsSwiper);
-      $wrap.data("swiper-text", textSwiper);
-    });
-  }
-
-  /* -----------------------------
-     Wipe + HUD
-  ----------------------------- */
-  const wipe = document.querySelector(".page-wipe");
-  if (!wipe) {
-    console.error("[Barba/Wipe] .page-wipe not found (must be outside Barba container).");
-    return;
-  }
-
-  const cityEl = document.querySelector(".wipe-city");
-  const countryEl = document.querySelector(".wipe-country");
-  const coordsEl = document.querySelector(".wipe-coords");
-
-  const MOVE_DURATION = 1.05;
-  const HOLD_DURATION = 0.25;
-
-  window.gsap.set(wipe, { y: "100%", autoAlpha: 1, display: "block" });
-
-  const HUD_FIXED_TEXT = "CODED BIAS WORLD TOUR";
-  function setHudFixed() {
-    if (cityEl) cityEl.textContent = HUD_FIXED_TEXT;
-    if (countryEl) { countryEl.textContent = ""; countryEl.style.display = "none"; }
-    if (coordsEl) { coordsEl.textContent = ""; coordsEl.style.display = "none"; }
-  }
-
-  /* -----------------------------
-     Webflow reinit (NO FORMS)
-     - Only IX2 + Lightbox
-  ----------------------------- */
-  function syncWebflowPageIdFromBarba(data) {
-    try {
-      const nextHtml = data?.next?.html;
-      if (!nextHtml) return;
-      const doc = new DOMParser().parseFromString(nextHtml, "text/html");
-      const nextPageId = doc.documentElement.getAttribute("data-wf-page");
-      if (nextPageId) document.documentElement.setAttribute("data-wf-page", nextPageId);
-    } catch (e) {}
-  }
-
-  function reinitWebflowCore() {
-    if (!window.Webflow) return;
-
-    let req = null;
-    try { req = window.Webflow.require ? window.Webflow.require.bind(window.Webflow) : null; }
-    catch (e) { req = null; }
-
-    try {
-      const ix2 = req ? req("ix2") : null;
-      ix2?.destroy?.();
-      ix2?.init?.();
-    } catch (e) {}
-
-    try {
-      const lb = req ? req("lightbox") : null;
-      lb?.ready?.();
-    } catch (e) {}
-  }
-
-  /* -----------------------------
-     Nav: keep Home link clickable
-  ----------------------------- */
-  function syncHomeNavState() {
-    const homeLink = document.querySelector(".nav-home-link");
-    if (!homeLink) return;
-
-    homeLink.classList.remove("is-disabled");
-    homeLink.setAttribute("aria-disabled", "false");
-    homeLink.style.pointerEvents = "";
-    homeLink.removeAttribute("disabled");
-  }
-
   /* -----------------------------
      Home panels (INTRO -> SLIDER)
      - Adds support for /?panel=slider to auto-jump to slider panel
+     - Robust selectors + fallback to document (Barba-safe)
   ----------------------------- */
 
   // Read desired home panel from URL query params
@@ -2613,17 +2218,36 @@ html.mglb-lock, body.mglb-lock { overflow: hidden !important; }
 
     if (window.__homePanelsTL) window.__homePanelsTL = null;
     if (window.homePanelsGoToIntro) window.homePanelsGoToIntro = null;
+    if (window.homePanelsGoToSlider) window.homePanelsGoToSlider = null;
+  }
+
+  function getHomeNodes(container = document) {
+    // Some Home UI elements may live outside the Barba container in Webflow builds.
+    // Fallback to document if not found within the provided container.
+    const rootA = container || document;
+    const rootB = document;
+
+    // Support BOTH selector styles to avoid breaking if Webflow structure changes.
+    const intro =
+      qs(".panel.panel--intro", rootA) || qs(".panel-panel--intro", rootA) ||
+      qs(".panel.panel--intro", rootB) || qs(".panel-panel--intro", rootB);
+
+    const slider =
+      qs(".panel.panel--slider", rootA) || qs(".panel-panel--slider", rootA) ||
+      qs(".panel.panel--slider", rootB) || qs(".panel-panel--slider", rootB);
+
+    const btn =
+      qs('[data-intro="continue"]', rootA) || qs('[data-intro="continue"]', rootB);
+
+    const shell =
+      qs(".page-shell", rootA) || qs(".page-shell", rootB);
+
+    return { shell, intro, slider, btn };
   }
 
   function setupHomePanels(container = document) {
-    const shell = qs(".page-shell", container);
-    if (!shell) return;
-
-    // FIX: correct selectors based on your classes
-    const intro = qs(".panel.panel--intro", container);
-    const slider = qs(".panel.panel--slider", container);
-    const btn = qs('[data-intro="continue"]', container);
-    if (!intro || !slider || !btn) return;
+    const { shell, intro, slider, btn } = getHomeNodes(container);
+    if (!shell || !intro || !slider || !btn) return;
 
     if (btn.dataset.homeBound === "1") return;
     btn.dataset.homeBound = "1";
@@ -2657,7 +2281,7 @@ html.mglb-lock, body.mglb-lock { overflow: hidden !important; }
         try {
           const $ = window.jQuery || window.$;
           if ($) {
-            const $wrap = $(container).find(".slider-gallery-comp").first();
+            const $wrap = $(document).find(".slider-gallery-comp").first();
             const textSwiper = $wrap.data("swiper-text");
             textSwiper?.update?.();
           }
@@ -2666,16 +2290,22 @@ html.mglb-lock, body.mglb-lock { overflow: hidden !important; }
 
     window.__homePanelsTL = tl;
 
-    btn.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
+    // Expose a programmatic API for auto-jump use cases
+    window.homePanelsGoToSlider = function () {
+      if (!window.__homePanelsTL) return;
       if (isAnimating) return;
 
       isAnimating = true;
       document.documentElement.classList.add("is-home-slider");
 
-      tl.eventCallback("onComplete", () => { isAnimating = false; });
-      tl.play(0);
+      window.__homePanelsTL.eventCallback("onComplete", () => { isAnimating = false; });
+      window.__homePanelsTL.play(0);
+    };
+
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      window.homePanelsGoToSlider?.();
     }, true);
 
     window.homePanelsGoToIntro = function () {
@@ -2700,367 +2330,21 @@ html.mglb-lock, body.mglb-lock { overflow: hidden !important; }
     };
   }
 
-  // Consume ?panel=slider and jump to slider AFTER the panels are bound
   function applyHomePanelIntent(container = document) {
     const intent = getHomePanelIntent();
     if (intent !== "slider") return;
 
-    // Only run if panels exist on this page
-    const intro = qs(".panel.panel--intro", container);
-    const slider = qs(".panel.panel--slider", container);
+    const { intro, slider } = getHomeNodes(container);
     if (!intro || !slider) return;
 
-    // Trigger the exact same transition as your CTA
+    // Delay slightly to allow Barba swap + Webflow reinit + Swiper init
     requestAnimationFrame(() => {
       setTimeout(() => {
-        const btn = qs('[data-intro="continue"]', container);
-        btn?.click?.();
+        window.homePanelsGoToSlider?.();
         cleanHomePanelIntentFromURL();
-      }, 0);
+      }, 60);
     });
   }
-
-  /* =========================================================
-     ANCHOR ROUTER (Barba-safe, repeatable)
-     - Captures clicked hash before navigation
-     - Scrolls after transition even if location.hash is empty/unchanged
-  ========================================================= */
-  const __anchorState = {
-    pendingHash: "",
-    pendingPath: "",
-    pendingHref: ""
-  };
-
-  function __normalizePathname(p) {
-    const s = (p || "/").trim();
-    const clean = s.replace(/\/+$/, "") || "/";
-    return clean;
-  }
-
-  function __captureAnchorClickOnce() {
-    if (window.__CBW_ANCHOR_CAPTURE_BOUND__) return;
-    window.__CBW_ANCHOR_CAPTURE_BOUND__ = true;
-
-    document.addEventListener("click", (e) => {
-      const a = e.target.closest?.("a[href]");
-      if (!a) return;
-
-      const href = a.getAttribute("href");
-      if (!href || !href.includes("#")) return;
-
-      let url;
-      try { url = new URL(href, location.origin); } catch (_) { return; }
-
-      const targetHash = url.hash || "";
-      if (!targetHash) return;
-
-      __anchorState.pendingHash = targetHash;          // "#watch-film"
-      __anchorState.pendingPath = __normalizePathname(url.pathname);
-      __anchorState.pendingHref = url.href;
-
-      // If same page + same hash, browser won't "change" anything => force scroll now
-      const currentPath = __normalizePathname(location.pathname);
-      const samePage = currentPath === __anchorState.pendingPath;
-      const sameHash = targetHash === location.hash;
-
-      if (samePage && sameHash) {
-        e.preventDefault();
-        e.stopPropagation();
-        try { unlockScrollAll?.(); } catch (_) {}
-        try { forceAnchorToHash(targetHash, document); } catch (_) {}
-      }
-    }, true);
-  }
-
-  function forceAnchorToHash(hash, container = document, opts = {}) {
-    if (!hash) return false;
-
-    const scope = container || document;
-    const target = scope.querySelector(hash) || document.querySelector(hash);
-    if (!target) {
-      console.warn("[Anchor] Target not found:", hash);
-      return false;
-    }
-
-    const OFFSET = Number.isFinite(opts.offset) ? opts.offset : 0;
-    const top = target.getBoundingClientRect().top + window.pageYOffset - OFFSET;
-
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        try { window.scrollTo({ top, behavior: "smooth" }); }
-        catch (_) { window.scrollTo(0, top); }
-      });
-    });
-
-    return true;
-  }
-
-  // Keep your existing forceAnchor() but make it use the new helper
-  function forceAnchorCompat(container = document) {
-    return forceAnchorToHash(location.hash, container);
-  }
-
-  // Bind once
-  __captureAnchorClickOnce();
-
-  /* -----------------------------
-     BARBA
-  ----------------------------- */
-  window.barba.init({
-    preventRunning: true,
-
-    // Prevent Barba from hijacking Finsweet list clicks (filters)
-    prevent: ({ el }) => {
-      if (!el) return false;
-      if (el.closest('[fs-list-element], [fs-list-field], [fs-list-value]')) return true;
-      return false;
-    },
-
-    transitions: [{
-      name: "wipe-stable-nojump",
-
-      async leave(data) {
-        const current = data.current.container;
-
-        setHudFixed();
-        window.gsap.killTweensOf(wipe);
-
-        freezeScrollTriggers();
-        lockScrollSoft();
-
-        current.style.visibility = "visible";
-        current.style.opacity = "1";
-
-        await gsapTo(wipe, {
-          y: "0%",
-          duration: MOVE_DURATION,
-          ease: "power4.inOut",
-          overwrite: true
-        });
-
-        lockScrollHardNow();
-        await delay(HOLD_DURATION);
-
-        current.style.visibility = "hidden";
-      },
-
-      beforeEnter(data) {
-        window.gsap.killTweensOf(wipe);
-        window.gsap.set(wipe, { y: "0%", autoAlpha: 1, display: "block" });
-
-        data.next.container.style.visibility = "visible";
-        data.next.container.style.opacity = "0";
-      },
-
-      async enter(data) {
-        data.next.container.style.opacity = "1";
-      },
-
-      async after(data) {
-        try {
-          if (!location.hash) hardScrollTop();
-
-          syncWebflowPageIdFromBarba(data);
-          reinitWebflowCore();
-          syncHomeNavState();
-
-          // Important order: Swipers -> Panels -> Apply intent
-          cleanupHomePanels();
-          initGallerySwipers(data?.next?.container || document);
-          setupHomePanels(data?.next?.container || document);
-          applyHomePanelIntent(data?.next?.container || document);
-
-          unfreezeScrollTriggers();
-          try { window.ScrollTrigger?.refresh?.(); } catch (e) {}
-
-        } catch (err) {
-          console.error("[Barba] after() crashed:", err);
-
-        } finally {
-          try {
-            window.gsap.killTweensOf(wipe);
-            await gsapTo(wipe, {
-              y: "-100%",
-              duration: MOVE_DURATION,
-              ease: "power4.inOut",
-              overwrite: true
-            });
-            window.gsap.set(wipe, { y: "100%" });
-          } catch (e) {
-            console.error("[Barba] Reveal failed:", e);
-            try { window.gsap.set(wipe, { y: "100%" }); } catch (_) {}
-          }
-
-          // Unlock scroll first, then apply anchor jump
-          try { unlockScrollAll(); } catch (e) {}
-
-          // Apply anchor after unlock + after reveal + after layout settle
-          try {
-            // Prefer captured hash (more reliable than location.hash with Barba timing)
-            const nextPath = __normalizePathname(location.pathname);
-            const wantHash =
-              (__anchorState.pendingPath === nextPath && __anchorState.pendingHash)
-                ? __anchorState.pendingHash
-                : location.hash;
-
-            try {
-              if (wantHash) {
-                setTimeout(() => {
-                  forceAnchorToHash(wantHash, data?.next?.container || document);
-
-                  // Clear pending state after use
-                  if (__anchorState.pendingPath === nextPath) {
-                    __anchorState.pendingHash = "";
-                    __anchorState.pendingPath = "";
-                    __anchorState.pendingHref = "";
-                  }
-                }, 80);
-              }
-            } catch (_) {}
-
-          } catch (e) {}
-        }
-      }
-    }]
-  });
-
-  // Bind hash click fallback ONCE (persists across Barba containers)
-  bindAnchorClickFallback();
-
-  /* -----------------------------
-     BARBA hooks (namespace modules)
-     - media
-     - request-screening
-  ----------------------------- */
-  if (window.barba?.hooks) {
-
-    window.barba.hooks.beforeLeave((data) => {
-      const ns = data?.current?.namespace;
-
-      if (ns === "media" && typeof window.MediaDestroy === "function") {
-        window.MediaDestroy();
-      }
-
-      if (ns === "request-screening" && typeof window.RequestScreeningDestroy === "function") {
-        window.RequestScreeningDestroy();
-      }
-    });
-
-    window.barba.hooks.afterEnter((data) => {
-      const ns = data?.next?.namespace;
-
-      if (ns === "media" && typeof window.MediaBoot === "function") {
-        setTimeout(() => {
-          requestAnimationFrame(() => window.MediaBoot(data.next.container));
-        }, 0);
-      }
-
-      if (ns === "request-screening" && typeof window.RequestScreeningBoot === "function") {
-        setTimeout(() => {
-          requestAnimationFrame(() => window.RequestScreeningBoot(data.next.container));
-        }, 0);
-      }
-    });
-  }
-
-  /* -----------------------------
-     First load
-  ----------------------------- */
-  document.addEventListener("DOMContentLoaded", () => {
-    setHudFixed();
-
-    if (!location.hash) hardScrollTopAfterPaint();
-    else forceAnchorCompat(document);
-
-    reinitWebflowCore();
-
-    // Important order: Swipers -> Panels -> Apply intent
-    cleanupHomePanels();
-    initGallerySwipers(document);
-    setupHomePanels(document);
-    applyHomePanelIntent(document);
-
-    syncHomeNavState();
-
-    // If landing directly on a namespace page
-    const container = document.querySelector('[data-barba="container"]');
-    const ns = container?.getAttribute("data-barba-namespace");
-
-    if (ns === "media" && typeof window.MediaBoot === "function") {
-      setTimeout(() => requestAnimationFrame(() => window.MediaBoot(container)), 0);
-    }
-
-    if (ns === "request-screening" && typeof window.RequestScreeningBoot === "function") {
-      setTimeout(() => requestAnimationFrame(() => window.RequestScreeningBoot(container)), 0);
-    }
-
-    console.log("[Barba/Wipe] init ✅ (+namespace hooks)");
-  });
-
-  /* -----------------------------
-     BFCache
-  ----------------------------- */
-  window.addEventListener("pageshow", (evt) => {
-    if (!evt.persisted) return;
-
-    unlockScrollAll();
-    unfreezeScrollTriggers();
-
-    if (!location.hash) hardScrollTopAfterPaint();
-    else forceAnchorCompat(document);
-
-    try { window.gsap.set(wipe, { y: "100%", autoAlpha: 1, display: "block" }); } catch (e) {}
-    try { setHudFixed(); } catch (e) {}
-
-    reinitWebflowCore();
-
-    // Keep the same init order on BFCache restore
-    cleanupHomePanels();
-    initGallerySwipers(document);
-    setupHomePanels(document);
-    applyHomePanelIntent(document);
-
-    syncHomeNavState();
-
-    const container = document.querySelector('[data-barba="container"]');
-    const ns = container?.getAttribute("data-barba-namespace");
-
-    if (ns === "media" && typeof window.MediaBoot === "function") {
-      setTimeout(() => requestAnimationFrame(() => window.MediaBoot(container)), 0);
-    }
-
-    if (ns === "request-screening" && typeof window.RequestScreeningBoot === "function") {
-      setTimeout(() => requestAnimationFrame(() => window.RequestScreeningBoot(container)), 0);
-    }
-  });
-
-  window.__initGallerySwipers = initGallerySwipers;
-})();
-
-
-(() => {
-  /* =========================================================
-     Force Barba navigation for media preset links
-     - Ensures wipe transition runs
-  ========================================================= */
-
-  document.addEventListener("click", (e) => {
-    const a = e.target.closest?.('a[data-media-preset]');
-    if (!a) return;
-
-    // If Barba is not available, let the browser navigate normally
-    if (!window.barba?.go) return;
-
-    // Only handle same-origin navigations
-    const url = new URL(a.href, location.href);
-    if (url.origin !== location.origin) return;
-
-    // Prevent hard navigation and let Barba handle the transition (wipe)
-    e.preventDefault();
-    window.barba.go(url.href);
-  }, true);
-})();
-
 
 
 
