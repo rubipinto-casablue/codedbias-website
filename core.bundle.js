@@ -1654,7 +1654,9 @@ html.mglb-lock,body.mglb-lock{overflow:hidden!important}`;
   /* ─── Wipe transition constants ─── */
   const WIPE_MOVE_DURATION = 1.05;   // seconds
   const WIPE_HOLD_DURATION = 0.25;   // seconds
-  const ANCHOR_SETTLE_MS   = 80;     // ms after reveal before anchor scroll
+  const ANCHOR_FIRST_MS    = 100;    // ms — first scroll attempt after reveal
+  const ANCHOR_RETRY_MS    = 600;    // ms — second attempt (after FS list renders)
+  const ANCHOR_FINAL_MS    = 1800;   // ms — final attempt (slow connections / heavy pages)
 
   /* ─── Home panels constants ─── */
   const HOME_BORDER_RADIUS = 32;
@@ -2083,7 +2085,7 @@ html.mglb-lock,body.mglb-lock{overflow:hidden!important}`;
           // NOW unlock — user can scroll freely
           try { unlockScrollAll(); } catch (e) {}
 
-          // Anchor after reveal
+          // Anchor scroll with retries (handles late-rendering content like FS lists)
           try {
             const nextPath = normalizePath(location.pathname);
             const wantHash = (anchorState.pendingPath === nextPath && anchorState.pendingHash)
@@ -2091,13 +2093,22 @@ html.mglb-lock,body.mglb-lock{overflow:hidden!important}`;
               : location.hash;
 
             if (wantHash) {
+              const scrollContainer = data?.next?.container || document;
+
+              // Three attempts: immediate, after FS list likely rendered, final safety
+              const retryDelays = [ANCHOR_FIRST_MS, ANCHOR_RETRY_MS, ANCHOR_FINAL_MS];
+
+              retryDelays.forEach(ms => {
+                setTimeout(() => scrollToHash(wantHash, scrollContainer), ms);
+              });
+
+              // Clean up pending state after last attempt
               setTimeout(() => {
-                scrollToHash(wantHash, data?.next?.container || document);
                 if (anchorState.pendingPath === nextPath) {
                   anchorState.pendingHash = "";
                   anchorState.pendingPath = "";
                 }
-              }, ANCHOR_SETTLE_MS);
+              }, ANCHOR_FINAL_MS + 50);
             }
           } catch (e) {}
         }
