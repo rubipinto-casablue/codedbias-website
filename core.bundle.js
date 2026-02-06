@@ -2038,7 +2038,17 @@ html.mglb-lock,body.mglb-lock{overflow:hidden!important}`;
 
       async after(data) {
         try {
-          if (!location.hash) hardScrollTop();
+          // Reset scroll position to top BEFORE anything else
+          // and update the soft-lock target so any stray scroll
+          // events during the reveal keep the page at 0
+          if (!location.hash) {
+            hardScrollTop();
+            _scrollBlockY = 0;
+          }
+
+          // Keep hard lock active during the entire reveal
+          lockScrollHardNow();
+
           syncWebflowPageIdFromBarba(data);
           reinitWebflowCore();
           syncHomeNavState();
@@ -2051,7 +2061,13 @@ html.mglb-lock,body.mglb-lock{overflow:hidden!important}`;
         } catch (err) {
           console.error("[Barba] after() crashed:", err);
         } finally {
-          // Reveal wipe
+          // Force scroll top once more right before reveal starts
+          if (!location.hash) {
+            hardScrollTop();
+            _scrollBlockY = 0;
+          }
+
+          // Reveal wipe (scroll stays locked during this animation)
           try {
             window.gsap.killTweensOf(wipe);
             await gsapTo(wipe, { y: "-100%", duration: WIPE_MOVE_DURATION, ease: "power4.inOut", overwrite: true });
@@ -2061,6 +2077,10 @@ html.mglb-lock,body.mglb-lock{overflow:hidden!important}`;
             try { window.gsap.set(wipe, { y: "100%" }); } catch (_) {}
           }
 
+          // Final scroll reset before unlocking
+          if (!location.hash) hardScrollTop();
+
+          // NOW unlock — user can scroll freely
           try { unlockScrollAll(); } catch (e) {}
 
           // Anchor after reveal
