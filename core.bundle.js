@@ -2081,8 +2081,8 @@ html.mglb-lock,body.mglb-lock{overflow:hidden!important}`;
           try { unlockScrollAll(); } catch (e) {}
 
           // Anchor scroll with smart retries
-          // - Cancels if user scrolls manually
-          // - Only re-scrolls if target position changed (FS list re-rendered)
+          // - Only re-scrolls if we're NOT already near the target
+          // - Handles late-rendering FS lists that shift target position
           try {
             const nextPath = normalizePath(location.pathname);
             const wantHash = (anchorState.pendingPath === nextPath && anchorState.pendingHash)
@@ -2091,50 +2091,33 @@ html.mglb-lock,body.mglb-lock{overflow:hidden!important}`;
 
             if (wantHash) {
               const scrollContainer = data?.next?.container || document;
-              const retryTimers = [];
-              let userScrolled = false;
-              let lastScrolledTo = -1;
-
-              // Detect user scroll → cancel remaining retries
-              function onUserScroll() { userScrolled = true; cancelRetries(); }
-              window.addEventListener("wheel", onUserScroll, { once: true, passive: true });
-              window.addEventListener("touchstart", onUserScroll, { once: true, passive: true });
-
-              function cancelRetries() {
-                retryTimers.forEach(id => clearTimeout(id));
-                retryTimers.length = 0;
-                window.removeEventListener("wheel", onUserScroll);
-                window.removeEventListener("touchstart", onUserScroll);
-              }
+              const CLOSE_ENOUGH = 150; // px — if we're within this range, skip re-scroll
 
               function smartScroll() {
-                if (userScrolled) return;
-
                 const target = scrollContainer.querySelector(wantHash) || document.querySelector(wantHash);
                 if (!target) return;
 
-                const top = Math.round(target.getBoundingClientRect().top + window.pageYOffset);
+                // How far is the target from the current viewport top?
+                const distFromViewport = Math.abs(target.getBoundingClientRect().top);
 
-                // Skip if we already scrolled here (position hasn't changed)
-                if (Math.abs(top - lastScrolledTo) < 50) return;
+                // If we're already close enough, don't interrupt the user
+                if (distFromViewport < CLOSE_ENOUGH) return;
 
-                lastScrolledTo = top;
                 scrollToHash(wantHash, scrollContainer);
               }
 
               // Three attempts: immediate, after FS renders, final safety
-              [ANCHOR_FIRST_MS, ANCHOR_RETRY_MS, ANCHOR_FINAL_MS].forEach(ms => {
-                retryTimers.push(setTimeout(smartScroll, ms));
-              });
+              const t1 = setTimeout(smartScroll, ANCHOR_FIRST_MS);
+              const t2 = setTimeout(smartScroll, ANCHOR_RETRY_MS);
+              const t3 = setTimeout(smartScroll, ANCHOR_FINAL_MS);
 
-              // Cleanup after last attempt
-              retryTimers.push(setTimeout(() => {
-                cancelRetries();
+              // Cleanup pending state
+              setTimeout(() => {
                 if (anchorState.pendingPath === nextPath) {
                   anchorState.pendingHash = "";
                   anchorState.pendingPath = "";
                 }
-              }, ANCHOR_FINAL_MS + 50));
+              }, ANCHOR_FINAL_MS + 50);
             }
           } catch (e) {}
         }
