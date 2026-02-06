@@ -2315,43 +2315,43 @@ html.mglb-lock, body.mglb-lock { overflow: hidden !important; }
       }
     }, true);
   }
-/* =========================================================
-   Anchor re-trigger
-   - Forces anchor scroll even when clicking the same URL+hash again.
-========================================================= */
-(function bindAnchorReTrigger() {
-  if (window.__CBW_ANCHOR_RETRIGGER__) return;
-  window.__CBW_ANCHOR_RETRIGGER__ = true;
 
-  document.addEventListener("click", (e) => {
-    const a = e.target.closest?.("a[href]");
-    if (!a) return;
+  /* =========================================================
+     Anchor re-trigger
+     - Forces anchor scroll even when clicking the same URL+hash again.
+  ========================================================= */
+  (function bindAnchorReTrigger() {
+    if (window.__CBW_ANCHOR_RETRIGGER__) return;
+    window.__CBW_ANCHOR_RETRIGGER__ = true;
 
-    const href = a.getAttribute("href");
-    if (!href || !href.includes("#")) return;
+    document.addEventListener("click", (e) => {
+      const a = e.target.closest?.("a[href]");
+      if (!a) return;
 
-    let url;
-    try { url = new URL(href, window.location.origin); } catch (_) { return; }
+      const href = a.getAttribute("href");
+      if (!href || !href.includes("#")) return;
 
-    const currentPath = (location.pathname || "/").replace(/\/+$/, "") || "/";
-    const targetPath  = (url.pathname || "/").replace(/\/+$/, "") || "/";
-    const targetHash  = url.hash || "";
+      let url;
+      try { url = new URL(href, window.location.origin); } catch (_) { return; }
 
-    // Only handle same page + same hash
-    if (currentPath === targetPath && targetHash && targetHash === location.hash) {
-      e.preventDefault();
-      e.stopPropagation();
+      const currentPath = (location.pathname || "/").replace(/\/+$/, "") || "/";
+      const targetPath  = (url.pathname || "/").replace(/\/+$/, "") || "/";
+      const targetHash  = url.hash || "";
 
-      // Make sure scroll isn't blocked
-      try { unlockScrollAll?.(); } catch (_) {}
+      // Only handle same page + same hash
+      if (currentPath === targetPath && targetHash && targetHash === location.hash) {
+        e.preventDefault();
+        e.stopPropagation();
 
-      // Force the scroll
-      try { forceAnchor(document); } catch (_) {}
-    }
-  }, true);
-})();
+        // Make sure scroll isn't blocked
+        try { unlockScrollAll?.(); } catch (_) {}
 
-   
+        // Force the scroll
+        try { forceAnchor(document); } catch (_) {}
+      }
+    }, true);
+  })();
+
   /* -----------------------------
      ScrollTrigger freeze/unfreeze
   ----------------------------- */
@@ -2585,7 +2585,28 @@ html.mglb-lock, body.mglb-lock { overflow: hidden !important; }
 
   /* -----------------------------
      Home panels (INTRO -> SLIDER)
+     - Adds support for /?panel=slider to auto-jump to slider panel
   ----------------------------- */
+
+  // Read desired home panel from URL query params
+  function getHomePanelIntent() {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      return (params.get("panel") || "").trim().toLowerCase(); // "slider"
+    } catch (e) {
+      return "";
+    }
+  }
+
+  // Clean URL after consuming the intent (optional)
+  function cleanHomePanelIntentFromURL() {
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("panel");
+      window.history.replaceState({}, "", url.pathname + url.search + url.hash);
+    } catch (e) {}
+  }
+
   function cleanupHomePanels() {
     document.body.classList.remove("no-scroll");
     document.documentElement.classList.remove("is-home-slider");
@@ -2598,8 +2619,9 @@ html.mglb-lock, body.mglb-lock { overflow: hidden !important; }
     const shell = qs(".page-shell", container);
     if (!shell) return;
 
-    const intro = qs(".panel-panel--intro", container);
-    const slider = qs(".panel-panel--slider", container);
+    // FIX: correct selectors based on your classes
+    const intro = qs(".panel.panel--intro", container);
+    const slider = qs(".panel.panel--slider", container);
     const btn = qs('[data-intro="continue"]', container);
     if (!intro || !slider || !btn) return;
 
@@ -2678,94 +2700,108 @@ html.mglb-lock, body.mglb-lock { overflow: hidden !important; }
     };
   }
 
-/* =========================================================
-   ANCHOR ROUTER (Barba-safe, repeatable)
-   - Captures clicked hash before navigation
-   - Scrolls after transition even if location.hash is empty/unchanged
-========================================================= */
-const __anchorState = {
-  pendingHash: "",
-  pendingPath: "",
-  pendingHref: ""
-};
+  // Consume ?panel=slider and jump to slider AFTER the panels are bound
+  function applyHomePanelIntent(container = document) {
+    const intent = getHomePanelIntent();
+    if (intent !== "slider") return;
 
-function __normalizePathname(p) {
-  const s = (p || "/").trim();
-  const clean = s.replace(/\/+$/, "") || "/";
-  return clean;
-}
+    // Only run if panels exist on this page
+    const intro = qs(".panel.panel--intro", container);
+    const slider = qs(".panel.panel--slider", container);
+    if (!intro || !slider) return;
 
-function __captureAnchorClickOnce() {
-  if (window.__CBW_ANCHOR_CAPTURE_BOUND__) return;
-  window.__CBW_ANCHOR_CAPTURE_BOUND__ = true;
-
-  document.addEventListener("click", (e) => {
-    const a = e.target.closest?.("a[href]");
-    if (!a) return;
-
-    // Only your footer links (optional: keep it global by removing this if)
-    // if (!a.classList.contains("u-footer-link-wrap")) return;
-
-    const href = a.getAttribute("href");
-    if (!href || !href.includes("#")) return;
-
-    let url;
-    try { url = new URL(href, location.origin); } catch (_) { return; }
-
-    const targetHash = url.hash || "";
-    if (!targetHash) return;
-
-    __anchorState.pendingHash = targetHash;          // "#watch-film"
-    __anchorState.pendingPath = __normalizePathname(url.pathname);
-    __anchorState.pendingHref = url.href;
-
-    // If same page + same hash, browser won't "change" anything => force scroll now
-    const currentPath = __normalizePathname(location.pathname);
-    const samePage = currentPath === __anchorState.pendingPath;
-    const sameHash = targetHash === location.hash;
-
-    if (samePage && sameHash) {
-      e.preventDefault();
-      e.stopPropagation();
-      try { unlockScrollAll?.(); } catch (_) {}
-      try { forceAnchorToHash(targetHash, document); } catch (_) {}
-    }
-  }, true);
-}
-
-function forceAnchorToHash(hash, container = document, opts = {}) {
-  if (!hash) return false;
-
-  const scope = container || document;
-  const target = scope.querySelector(hash) || document.querySelector(hash);
-  if (!target) {
-    console.warn("[Anchor] Target not found:", hash);
-    return false;
+    // Trigger the exact same transition as your CTA
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        const btn = qs('[data-intro="continue"]', container);
+        btn?.click?.();
+        cleanHomePanelIntentFromURL();
+      }, 0);
+    });
   }
 
-  const OFFSET = Number.isFinite(opts.offset) ? opts.offset : 0;
-  const top = target.getBoundingClientRect().top + window.pageYOffset - OFFSET;
+  /* =========================================================
+     ANCHOR ROUTER (Barba-safe, repeatable)
+     - Captures clicked hash before navigation
+     - Scrolls after transition even if location.hash is empty/unchanged
+  ========================================================= */
+  const __anchorState = {
+    pendingHash: "",
+    pendingPath: "",
+    pendingHref: ""
+  };
 
-  requestAnimationFrame(() => {
+  function __normalizePathname(p) {
+    const s = (p || "/").trim();
+    const clean = s.replace(/\/+$/, "") || "/";
+    return clean;
+  }
+
+  function __captureAnchorClickOnce() {
+    if (window.__CBW_ANCHOR_CAPTURE_BOUND__) return;
+    window.__CBW_ANCHOR_CAPTURE_BOUND__ = true;
+
+    document.addEventListener("click", (e) => {
+      const a = e.target.closest?.("a[href]");
+      if (!a) return;
+
+      const href = a.getAttribute("href");
+      if (!href || !href.includes("#")) return;
+
+      let url;
+      try { url = new URL(href, location.origin); } catch (_) { return; }
+
+      const targetHash = url.hash || "";
+      if (!targetHash) return;
+
+      __anchorState.pendingHash = targetHash;          // "#watch-film"
+      __anchorState.pendingPath = __normalizePathname(url.pathname);
+      __anchorState.pendingHref = url.href;
+
+      // If same page + same hash, browser won't "change" anything => force scroll now
+      const currentPath = __normalizePathname(location.pathname);
+      const samePage = currentPath === __anchorState.pendingPath;
+      const sameHash = targetHash === location.hash;
+
+      if (samePage && sameHash) {
+        e.preventDefault();
+        e.stopPropagation();
+        try { unlockScrollAll?.(); } catch (_) {}
+        try { forceAnchorToHash(targetHash, document); } catch (_) {}
+      }
+    }, true);
+  }
+
+  function forceAnchorToHash(hash, container = document, opts = {}) {
+    if (!hash) return false;
+
+    const scope = container || document;
+    const target = scope.querySelector(hash) || document.querySelector(hash);
+    if (!target) {
+      console.warn("[Anchor] Target not found:", hash);
+      return false;
+    }
+
+    const OFFSET = Number.isFinite(opts.offset) ? opts.offset : 0;
+    const top = target.getBoundingClientRect().top + window.pageYOffset - OFFSET;
+
     requestAnimationFrame(() => {
-      try { window.scrollTo({ top, behavior: "smooth" }); }
-      catch (_) { window.scrollTo(0, top); }
+      requestAnimationFrame(() => {
+        try { window.scrollTo({ top, behavior: "smooth" }); }
+        catch (_) { window.scrollTo(0, top); }
+      });
     });
-  });
 
-  return true;
-}
+    return true;
+  }
 
-// Keep your existing forceAnchor() if you want,
-// but make it use the new helper:
-function forceAnchor(container = document) {
-  return forceAnchorToHash(location.hash, container);
-}
+  // Keep your existing forceAnchor() but make it use the new helper
+  function forceAnchorCompat(container = document) {
+    return forceAnchorToHash(location.hash, container);
+  }
 
-// Bind once
-__captureAnchorClickOnce();
-
-   
+  // Bind once
+  __captureAnchorClickOnce();
 
   /* -----------------------------
      BARBA
@@ -2828,10 +2864,11 @@ __captureAnchorClickOnce();
           reinitWebflowCore();
           syncHomeNavState();
 
+          // Important order: Swipers -> Panels -> Apply intent
           cleanupHomePanels();
-          setupHomePanels(data?.next?.container || document);
-
           initGallerySwipers(data?.next?.container || document);
+          setupHomePanels(data?.next?.container || document);
+          applyHomePanelIntent(data?.next?.container || document);
 
           unfreezeScrollTriggers();
           try { window.ScrollTrigger?.refresh?.(); } catch (e) {}
@@ -2859,27 +2896,27 @@ __captureAnchorClickOnce();
 
           // Apply anchor after unlock + after reveal + after layout settle
           try {
-           // Prefer captured hash (more reliable than location.hash with Barba timing)
-const nextPath = __normalizePathname(location.pathname);
-const wantHash =
-  (__anchorState.pendingPath === nextPath && __anchorState.pendingHash)
-    ? __anchorState.pendingHash
-    : location.hash;
+            // Prefer captured hash (more reliable than location.hash with Barba timing)
+            const nextPath = __normalizePathname(location.pathname);
+            const wantHash =
+              (__anchorState.pendingPath === nextPath && __anchorState.pendingHash)
+                ? __anchorState.pendingHash
+                : location.hash;
 
-try {
-  if (wantHash) {
-    setTimeout(() => {
-      forceAnchorToHash(wantHash, data?.next?.container || document);
+            try {
+              if (wantHash) {
+                setTimeout(() => {
+                  forceAnchorToHash(wantHash, data?.next?.container || document);
 
-      // Clear pending state after use
-      if (__anchorState.pendingPath === nextPath) {
-        __anchorState.pendingHash = "";
-        __anchorState.pendingPath = "";
-        __anchorState.pendingHref = "";
-      }
-    }, 80);
-  }
-} catch (_) {}
+                  // Clear pending state after use
+                  if (__anchorState.pendingPath === nextPath) {
+                    __anchorState.pendingHash = "";
+                    __anchorState.pendingPath = "";
+                    __anchorState.pendingHref = "";
+                  }
+                }, 80);
+              }
+            } catch (_) {}
 
           } catch (e) {}
         }
@@ -2933,12 +2970,16 @@ try {
     setHudFixed();
 
     if (!location.hash) hardScrollTopAfterPaint();
-    else forceAnchor(document);
+    else forceAnchorCompat(document);
 
     reinitWebflowCore();
+
+    // Important order: Swipers -> Panels -> Apply intent
     cleanupHomePanels();
-    setupHomePanels(document);
     initGallerySwipers(document);
+    setupHomePanels(document);
+    applyHomePanelIntent(document);
+
     syncHomeNavState();
 
     // If landing directly on a namespace page
@@ -2966,14 +3007,19 @@ try {
     unfreezeScrollTriggers();
 
     if (!location.hash) hardScrollTopAfterPaint();
-    else forceAnchor(document);
+    else forceAnchorCompat(document);
 
     try { window.gsap.set(wipe, { y: "100%", autoAlpha: 1, display: "block" }); } catch (e) {}
     try { setHudFixed(); } catch (e) {}
 
     reinitWebflowCore();
+
+    // Keep the same init order on BFCache restore
     cleanupHomePanels();
+    initGallerySwipers(document);
     setupHomePanels(document);
+    applyHomePanelIntent(document);
+
     syncHomeNavState();
 
     const container = document.querySelector('[data-barba="container"]');
@@ -2996,7 +3042,7 @@ try {
   /* =========================================================
      Force Barba navigation for media preset links
      - Ensures wipe transition runs
-     ========================================================= */
+  ========================================================= */
 
   document.addEventListener("click", (e) => {
     const a = e.target.closest?.('a[data-media-preset]');
@@ -3014,6 +3060,7 @@ try {
     window.barba.go(url.href);
   }, true);
 })();
+
 
 
 
