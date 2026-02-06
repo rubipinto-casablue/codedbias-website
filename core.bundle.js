@@ -749,12 +749,14 @@ function initDisableCurrentFooterLinks() {
 
 
 /* =========================================================
-   SECTION B — NAV + TOURS SWIPER (UPDATED: Desktop wheel-only, Mobile swipe, Start on current)
+   SECTION B — NAV + TOURS SWIPER (UPDATED: Drag + Click safe, Desktop & Mobile)
 ========================================================= */
 (() => {
   /**
    * NAV + TOURS SWIPER (Barba-safe)
-   * Code comments in English ✅
+   * - Desktop: drag + wheel + keyboard (clicks always navigate)
+   * - Mobile: swipe + keyboard (taps always navigate)
+   * - Starts on current page's slide
    */
 
   if (window.__NAV_PUSH_AND_SWIPER_INIT__) return;
@@ -882,8 +884,47 @@ function initDisableCurrentFooterLinks() {
   }
 
   function getIsMobileMode() {
-    // Mobile/Touch-first: allow swipe
     return window.matchMedia("(max-width: 767px), (pointer: coarse)").matches;
+  }
+
+  /* =========================================================
+     DRAG vs CLICK GUARD
+     Tracks pointer start position and blocks link navigation
+     if the pointer moved more than the dead zone (= was a drag).
+  ========================================================= */
+  const DRAG_CLICK_DEADZONE = 12; // px — movement below this = click, above = drag
+
+  function attachDragClickGuard(swiperEl) {
+    let startX = null;
+    let startY = null;
+    let wasDrag = false;
+
+    swiperEl.addEventListener("pointerdown", (e) => {
+      startX = e.clientX;
+      startY = e.clientY;
+      wasDrag = false;
+    });
+
+    swiperEl.addEventListener("pointermove", (e) => {
+      if (startX === null) return;
+      const dx = Math.abs(e.clientX - startX);
+      const dy = Math.abs(e.clientY - startY);
+      if (dx > DRAG_CLICK_DEADZONE || dy > DRAG_CLICK_DEADZONE) {
+        wasDrag = true;
+      }
+    });
+
+    // Capture-phase click listener: if it was a drag, block the <a> navigation
+    swiperEl.addEventListener("click", (e) => {
+      if (wasDrag) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      // Reset for next interaction
+      startX = null;
+      startY = null;
+      wasDrag = false;
+    }, true); // ← capture phase so it fires before any other click handler
   }
 
   /* =========================================================
@@ -905,7 +946,6 @@ function initDisableCurrentFooterLinks() {
 
     const currentPath = normalizeUrlForCompare(location.href);
 
-    // Only real slides (ignore your spacer)
     const slides = Array.from(sw.slides).filter(
       (el) => el.classList?.contains("swiper-slide") && !el.classList.contains("nav-tour-spacer")
     );
@@ -923,6 +963,9 @@ function initDisableCurrentFooterLinks() {
     return 0;
   }
 
+  /* =========================================================
+     SWIPER INIT
+  ========================================================= */
   function initNavToursSwiper(scope = document) {
     if (!window.Swiper) {
       console.warn("[NavToursSwiper] Swiper is not loaded.");
@@ -946,25 +989,34 @@ function initDisableCurrentFooterLinks() {
       navToursSwiper = null;
     }
 
-    // Desktop vs Mobile interaction strategy:
-    // - Desktop: wheel/trackpad scrolling only (no drag), clicks always win
-    // - Mobile: swipe enabled (expected gesture)
+    /* ----- Interaction strategies per breakpoint ----- */
+
+    // Desktop: drag + wheel, with click guard to protect <a> links
     const interactionDesktop = {
-      allowTouchMove: false,
-      simulateTouch: false,
+      allowTouchMove: true,
+      simulateTouch: true,
+      touchStartPreventDefault: false,   // don't block native click/tap
+      preventClicks: true,               // Swiper blocks click after drag
+      preventClicksPropagation: true,    // also stop propagation after drag
       mousewheel: { forceToAxis: true, sensitivity: 1 },
-      noSwiping: true,
-      noSwipingSelector: "a, .w-inline-block, [data-no-swiper]"
+      noSwiping: false,
+      threshold: 15,                     // generous dead zone for desktop
     };
 
+    // Mobile: swipe enabled (expected gesture)
     const interactionMobile = {
       allowTouchMove: true,
       simulateTouch: true,
+      touchStartPreventDefault: false,
+      preventClicks: true,
+      preventClicksPropagation: true,
       mousewheel: false,
-      noSwiping: false
+      noSwiping: false,
+      threshold: 10,
     };
 
     navToursSwiper = new window.Swiper(root, {
+      cssMode: false,              // ensure JS-based touch handling
       freeMode: false,
       slidesPerView: "auto",
       slidesPerGroup: 1,
@@ -981,11 +1033,7 @@ function initDisableCurrentFooterLinks() {
       observer: true,
       observeParents: true,
 
-      // Avoid any "click -> slideTo" behavior
       slideToClickedSlide: false,
-
-      // Reduce accidental "gesture" classification on mobile taps a bit
-      threshold: isMobile ? 8 : 0,
 
       keyboard: { enabled: true, onlyInViewport: true, pageUpDown: false },
 
@@ -997,6 +1045,9 @@ function initDisableCurrentFooterLinks() {
           ensureNavToursEndSpacer(sw);
           sw.update();
           applyEndHardStop(sw);
+
+          // Attach the drag-vs-click guard to the swiper container
+          attachDragClickGuard(sw.el);
         },
 
         resize(sw) {
@@ -1044,6 +1095,9 @@ function initDisableCurrentFooterLinks() {
     applyEndHardStop(sw);
   }
 
+  /* =========================================================
+     NAV OPEN / CLOSE
+  ========================================================= */
   let isOpen = false;
 
   const navTL = window.gsap.timeline({
@@ -1086,7 +1140,7 @@ function initDisableCurrentFooterLinks() {
     lockScroll();
     navTL.play(0);
 
-    // IMPORTANT: after panel animation/layout settles, update swiper then jump to active page slide
+    // After panel animation/layout settles, update swiper then jump to active page slide
     setTimeout(() => {
       updateNavToursSwiper();
 
