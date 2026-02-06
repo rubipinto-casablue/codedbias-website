@@ -2149,17 +2149,7 @@ html.mglb-lock,body.mglb-lock{overflow:hidden!important}`;
 
 
 /* =========================================================
-   SECTION F — FORCE BARBA NAV FOR MEDIA PRESET LINKS
+   NOTE: "Force Barba nav for media preset links" handler
+   lives in the Webflow footer code (not in this bundle)
+   to allow iteration without redeploying GitHub.
 ========================================================= */
-(() => {
-  document.addEventListener("click", (e) => {
-    const a = e.target.closest?.('a[data-media-preset]');
-    if (!a || !window.barba?.go) return;
-
-    const url = new URL(a.href, location.href);
-    if (url.origin !== location.origin) return;
-
-    e.preventDefault();
-    window.barba.go(url.href);
-  }, true);
-})();
