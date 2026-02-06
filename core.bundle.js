@@ -749,13 +749,14 @@ function initDisableCurrentFooterLinks() {
 
 
 /* =========================================================
-   SECTION B — NAV + TOURS SWIPER (UPDATED: Drag + Click safe, Desktop & Mobile)
+   SECTION B — NAV + TOURS SWIPER (UPDATED: Drag-through-links, Desktop & Mobile)
 ========================================================= */
 (() => {
   /**
    * NAV + TOURS SWIPER (Barba-safe)
    * - Desktop: drag + wheel + keyboard (clicks always navigate)
    * - Mobile: swipe + keyboard (taps always navigate)
+   * - Drag works even when <a> covers the entire slide
    * - Starts on current page's slide
    */
 
@@ -805,7 +806,6 @@ function initDisableCurrentFooterLinks() {
 
   function lockScroll() {
     savedScrollY = window.scrollY || window.pageYOffset || 0;
-
     document.body.style.position = "fixed";
     document.body.style.top = `-${savedScrollY}px`;
     document.body.style.left = "0";
@@ -819,7 +819,6 @@ function initDisableCurrentFooterLinks() {
     document.body.style.left = "";
     document.body.style.right = "";
     document.body.style.width = "";
-
     window.scrollTo(0, savedScrollY);
   }
 
@@ -888,48 +887,109 @@ function initDisableCurrentFooterLinks() {
   }
 
   /* =========================================================
-     DRAG vs CLICK GUARD
-     Tracks pointer start position and blocks link navigation
-     if the pointer moved more than the dead zone (= was a drag).
-  ========================================================= */
-  const DRAG_CLICK_DEADZONE = 12; // px — movement below this = click, above = drag
+     DRAG-THROUGH-LINKS GUARD
+     ─────────────────────────────────────────────────────────
+     Problem: <a> covers the entire slide, so pointerdown
+     never reaches Swiper's wrapper → drag doesn't start.
 
-  function attachDragClickGuard(swiperEl) {
+     Solution:
+     1. On pointerdown → record position & target link, then
+        immediately set pointer-events:none on ALL slide links
+        so Swiper receives subsequent pointer events.
+     2. Track movement. If pointer moves > DEADZONE → drag.
+        Links stay disabled; Swiper handles everything.
+     3. If pointer did NOT move enough → it was a click/tap.
+        Re-enable links and programmatically click the link.
+     4. On pointerup / pointercancel → always restore links.
+  ========================================================= */
+  const DRAG_DEADZONE = 12; // px
+
+  function attachDragThroughLinks(swiperEl) {
     let startX = null;
     let startY = null;
-    let wasDrag = false;
+    let isDragging = false;
+    let targetLink = null;
+    let isTracking = false;
+
+    function getSlideLinks() {
+      return swiperEl.querySelectorAll(".swiper-slide a");
+    }
+
+    function disableLinks() {
+      getSlideLinks().forEach((a) => {
+        a.style.pointerEvents = "none";
+      });
+    }
+
+    function enableLinks() {
+      getSlideLinks().forEach((a) => {
+        a.style.pointerEvents = "";
+      });
+    }
 
     swiperEl.addEventListener("pointerdown", (e) => {
+      // Find the <a> under the pointer BEFORE we disable them
+      targetLink = e.target.closest("a");
+
       startX = e.clientX;
       startY = e.clientY;
-      wasDrag = false;
+      isDragging = false;
+      isTracking = true;
+
+      // Disable links so Swiper's internal pointer tracking works
+      disableLinks();
     });
 
     swiperEl.addEventListener("pointermove", (e) => {
-      if (startX === null) return;
+      if (!isTracking || startX === null) return;
+      if (isDragging) return;
+
       const dx = Math.abs(e.clientX - startX);
       const dy = Math.abs(e.clientY - startY);
-      if (dx > DRAG_CLICK_DEADZONE || dy > DRAG_CLICK_DEADZONE) {
-        wasDrag = true;
+
+      if (dx > DRAG_DEADZONE || dy > DRAG_DEADZONE) {
+        isDragging = true;
       }
     });
 
-    // Capture-phase click listener: if it was a drag, block the <a> navigation
+    function handleEnd() {
+      if (!isTracking) return;
+
+      const wasDrag = isDragging;
+      const link = targetLink;
+
+      // Always restore pointer-events
+      enableLinks();
+
+      // Reset state
+      startX = null;
+      startY = null;
+      isDragging = false;
+      targetLink = null;
+      isTracking = false;
+
+      // If it was a tap/click (not a drag) → navigate
+      if (!wasDrag && link) {
+        requestAnimationFrame(() => {
+          link.click();
+        });
+      }
+    }
+
+    swiperEl.addEventListener("pointerup", handleEnd);
+    swiperEl.addEventListener("pointercancel", handleEnd);
+
+    // Safety net: block any residual click events after a confirmed drag
     swiperEl.addEventListener("click", (e) => {
-      if (wasDrag) {
+      if (isDragging) {
         e.preventDefault();
         e.stopPropagation();
       }
-      // Reset for next interaction
-      startX = null;
-      startY = null;
-      wasDrag = false;
-    }, true); // ← capture phase so it fires before any other click handler
+    }, true);
   }
 
   /* =========================================================
      ACTIVE SLIDE (Start swiper on current page)
-     - Match by pathname only (ignores hash/query)
   ========================================================= */
   function normalizeUrlForCompare(href) {
     try {
@@ -978,7 +1038,6 @@ function initDisableCurrentFooterLinks() {
     const isMobile = getIsMobileMode();
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-    // If we already have a swiper but breakpoint mode changed, rebuild it
     if (navToursSwiper && navToursSwiper.__isMobileMode !== isMobile) {
       try { navToursSwiper.destroy(true, true); } catch (e) {}
       navToursSwiper = null;
@@ -989,34 +1048,33 @@ function initDisableCurrentFooterLinks() {
       navToursSwiper = null;
     }
 
-    /* ----- Interaction strategies per breakpoint ----- */
-
-    // Desktop: drag + wheel, with click guard to protect <a> links
-    const interactionDesktop = {
-      allowTouchMove: true,
-      simulateTouch: true,
-      touchStartPreventDefault: false,   // don't block native click/tap
-      preventClicks: true,               // Swiper blocks click after drag
-      preventClicksPropagation: true,    // also stop propagation after drag
-      mousewheel: { forceToAxis: true, sensitivity: 1 },
-      noSwiping: false,
-      threshold: 15,                     // generous dead zone for desktop
-    };
-
-    // Mobile: swipe enabled (expected gesture)
-    const interactionMobile = {
+    /* ----- Shared interaction config ----- */
+    const sharedInteraction = {
       allowTouchMove: true,
       simulateTouch: true,
       touchStartPreventDefault: false,
-      preventClicks: true,
-      preventClicksPropagation: true,
-      mousewheel: false,
+      preventClicks: false,
+      preventClicksPropagation: false,
+      slideToClickedSlide: false,
+      cssMode: false,
       noSwiping: false,
+    };
+
+    /* ----- Per-breakpoint overrides ----- */
+    const desktopOverrides = {
+      mousewheel: { forceToAxis: true, sensitivity: 1 },
+      threshold: 15,
+    };
+
+    const mobileOverrides = {
+      mousewheel: false,
       threshold: 10,
     };
 
     navToursSwiper = new window.Swiper(root, {
-      cssMode: false,              // ensure JS-based touch handling
+      ...sharedInteraction,
+      ...(isMobile ? mobileOverrides : desktopOverrides),
+
       freeMode: false,
       slidesPerView: "auto",
       slidesPerGroup: 1,
@@ -1033,11 +1091,7 @@ function initDisableCurrentFooterLinks() {
       observer: true,
       observeParents: true,
 
-      slideToClickedSlide: false,
-
       keyboard: { enabled: true, onlyInViewport: true, pageUpDown: false },
-
-      ...(isMobile ? interactionMobile : interactionDesktop),
 
       on: {
         init(sw) {
@@ -1046,8 +1100,8 @@ function initDisableCurrentFooterLinks() {
           sw.update();
           applyEndHardStop(sw);
 
-          // Attach the drag-vs-click guard to the swiper container
-          attachDragClickGuard(sw.el);
+          // Attach drag-through-links guard
+          attachDragThroughLinks(sw.el);
         },
 
         resize(sw) {
@@ -1078,7 +1132,6 @@ function initDisableCurrentFooterLinks() {
 
     const isMobile = getIsMobileMode();
 
-    // If breakpoint mode changed, rebuild so interaction strategy updates correctly
     if (sw.__isMobileMode !== isMobile) {
       initNavToursSwiper(document);
       return;
@@ -1140,7 +1193,6 @@ function initDisableCurrentFooterLinks() {
     lockScroll();
     navTL.play(0);
 
-    // After panel animation/layout settles, update swiper then jump to active page slide
     setTimeout(() => {
       updateNavToursSwiper();
 
@@ -1231,7 +1283,6 @@ function initDisableCurrentFooterLinks() {
     });
   }
 })();
-
 
 
 /* =========================================================
