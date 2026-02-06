@@ -1654,9 +1654,6 @@ html.mglb-lock,body.mglb-lock{overflow:hidden!important}`;
   /* ─── Wipe transition constants ─── */
   const WIPE_MOVE_DURATION = 1.05;   // seconds
   const WIPE_HOLD_DURATION = 0.25;   // seconds
-  const ANCHOR_FIRST_MS    = 100;    // ms — first scroll attempt after reveal
-  const ANCHOR_RETRY_MS    = 600;    // ms — second attempt (after FS list renders)
-  const ANCHOR_FINAL_MS    = 1800;   // ms — final attempt (slow connections / heavy pages)
 
   /* ─── Home panels constants ─── */
   const HOME_BORDER_RADIUS = 32;
@@ -1702,6 +1699,12 @@ html.mglb-lock,body.mglb-lock{overflow:hidden!important}`;
 
     const offset = Number.isFinite(opts.offset) ? opts.offset : 0;
     const top = target.getBoundingClientRect().top + window.pageYOffset - offset;
+    const instant = opts.instant === true;
+
+    if (instant) {
+      window.scrollTo(0, top);
+      return true;
+    }
 
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
@@ -2060,11 +2063,22 @@ html.mglb-lock,body.mglb-lock{overflow:hidden!important}`;
         } catch (err) {
           console.error("[Barba] after() crashed:", err);
         } finally {
-          // Force scroll top right before reveal starts
-          hardScrollTop();
-          _scrollBlockY = 0;
+          // Determine anchor target BEFORE reveal
+          let wantHash = "";
+          try {
+            const nextPath = normalizePath(location.pathname);
+            wantHash = (anchorState.pendingPath === nextPath && anchorState.pendingHash)
+              ? anchorState.pendingHash
+              : location.hash;
+          } catch (e) {}
 
-          // Reveal wipe (scroll stays locked during this animation)
+          // Scroll to anchor INSTANTLY while wipe still covers the page
+          const scrollContainer = data?.next?.container || document;
+          if (wantHash) {
+            scrollToHash(wantHash, scrollContainer, { instant: true });
+          }
+
+          // Reveal wipe (page is already at the correct position)
           try {
             window.gsap.killTweensOf(wipe);
             await gsapTo(wipe, { y: "-100%", duration: WIPE_MOVE_DURATION, ease: "power4.inOut", overwrite: true });
@@ -2074,50 +2088,18 @@ html.mglb-lock,body.mglb-lock{overflow:hidden!important}`;
             try { window.gsap.set(wipe, { y: "100%" }); } catch (_) {}
           }
 
-          // Final scroll top before unlocking
-          hardScrollTop();
+          // Final: if no hash, ensure we're at top
+          if (!wantHash) hardScrollTop();
 
           // NOW unlock — user can scroll freely
           try { unlockScrollAll(); } catch (e) {}
 
-          // Anchor scroll with smart retries
-          // - Only re-scrolls if we're NOT already near the target
-          // - Handles late-rendering FS lists that shift target position
+          // Clean up anchor state
           try {
             const nextPath = normalizePath(location.pathname);
-            const wantHash = (anchorState.pendingPath === nextPath && anchorState.pendingHash)
-              ? anchorState.pendingHash
-              : location.hash;
-
-            if (wantHash) {
-              const scrollContainer = data?.next?.container || document;
-              const CLOSE_ENOUGH = 150; // px — if we're within this range, skip re-scroll
-
-              function smartScroll() {
-                const target = scrollContainer.querySelector(wantHash) || document.querySelector(wantHash);
-                if (!target) return;
-
-                // How far is the target from the current viewport top?
-                const distFromViewport = Math.abs(target.getBoundingClientRect().top);
-
-                // If we're already close enough, don't interrupt the user
-                if (distFromViewport < CLOSE_ENOUGH) return;
-
-                scrollToHash(wantHash, scrollContainer);
-              }
-
-              // Three attempts: immediate, after FS renders, final safety
-              const t1 = setTimeout(smartScroll, ANCHOR_FIRST_MS);
-              const t2 = setTimeout(smartScroll, ANCHOR_RETRY_MS);
-              const t3 = setTimeout(smartScroll, ANCHOR_FINAL_MS);
-
-              // Cleanup pending state
-              setTimeout(() => {
-                if (anchorState.pendingPath === nextPath) {
-                  anchorState.pendingHash = "";
-                  anchorState.pendingPath = "";
-                }
-              }, ANCHOR_FINAL_MS + 50);
+            if (anchorState.pendingPath === nextPath) {
+              anchorState.pendingHash = "";
+              anchorState.pendingPath = "";
             }
           } catch (e) {}
         }
