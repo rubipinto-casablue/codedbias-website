@@ -267,17 +267,20 @@ window.CBW = (() => {
         }).catch(() => {
           // Blocked by browser — wait for first interaction
           function onInteraction() {
-            document.removeEventListener("click", onInteraction, true);
-            document.removeEventListener("touchstart", onInteraction, true);
-            document.removeEventListener("keydown", onInteraction, true);
-            document.removeEventListener("mousemove", onInteraction, true);
             if (localStorage.getItem(STORAGE_KEY) === "false") return;
             audio.volume = 0;
             audio.play().then(() => {
+              // Only remove listeners AFTER play succeeds
+              document.removeEventListener("click", onInteraction, true);
+              document.removeEventListener("touchstart", onInteraction, true);
+              document.removeEventListener("keydown", onInteraction, true);
+              document.removeEventListener("mousemove", onInteraction, true);
               fadeVolume(audio, TARGET_VOL, FADE_IN_MS);
               localStorage.setItem(STORAGE_KEY, "true");
               syncLottie();
-            }).catch(() => {});
+            }).catch(() => {
+              // Play failed (e.g. mousemove not accepted) — keep listeners active
+            });
           }
           document.addEventListener("click", onInteraction, { capture: true, once: false });
           document.addEventListener("touchstart", onInteraction, { capture: true, once: false });
