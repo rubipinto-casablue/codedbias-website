@@ -275,7 +275,6 @@ window.CBW = (() => {
             document.removeEventListener("click", onInteraction, true);
             document.removeEventListener("touchstart", onInteraction, true);
             document.removeEventListener("keydown", onInteraction, true);
-            if (localStorage.getItem(STORAGE_KEY) === "false") { console.log("[Audio] skipped — user turned off"); return; }
             audio.volume = 0;
             audio.play().then(() => {
               console.log("[Audio] play() succeeded after interaction");
@@ -295,11 +294,7 @@ window.CBW = (() => {
 
     const lsVal = localStorage.getItem(STORAGE_KEY);
     console.log("[Audio] localStorage =", lsVal);
-    if (lsVal !== "false") {
-      startAudio();
-    } else {
-      console.log("[Audio] skipped — localStorage is false");
-    }
+    startAudio();
     setTimeout(syncLottie, SYNC_DELAY_MS);
 
     function toggleAudio() {
