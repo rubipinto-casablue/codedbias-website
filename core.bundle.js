@@ -270,6 +270,7 @@ window.CBW = (() => {
             document.removeEventListener("click", onInteraction, true);
             document.removeEventListener("touchstart", onInteraction, true);
             document.removeEventListener("keydown", onInteraction, true);
+            document.removeEventListener("mousemove", onInteraction, true);
             if (localStorage.getItem(STORAGE_KEY) === "false") return;
             audio.volume = 0;
             audio.play().then(() => {
@@ -281,6 +282,7 @@ window.CBW = (() => {
           document.addEventListener("click", onInteraction, { capture: true, once: false });
           document.addEventListener("touchstart", onInteraction, { capture: true, once: false });
           document.addEventListener("keydown", onInteraction, { capture: true, once: false });
+          document.addEventListener("mousemove", onInteraction, { capture: true, once: false });
         });
       }
     }
