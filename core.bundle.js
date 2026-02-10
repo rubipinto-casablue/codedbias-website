@@ -254,11 +254,39 @@ window.CBW = (() => {
     function syncLottie()   { audio.paused ? lottieOff() : lottieOnLoop(); }
 
     // Auto-play on load (unless user explicitly turned it off)
-    if (localStorage.getItem(STORAGE_KEY) !== "false") {
+    // Browsers block autoplay without interaction — retry on first click/touch/key
+    function startAudio() {
+      if (!audio.paused) return; // already playing
       audio.volume = 0;
-      audio.play().catch(() => {});
-      fadeVolume(audio, TARGET_VOL, FADE_IN_MS);
-      localStorage.setItem(STORAGE_KEY, "true");
+      const p = audio.play();
+      if (p && p.then) {
+        p.then(() => {
+          fadeVolume(audio, TARGET_VOL, FADE_IN_MS);
+          localStorage.setItem(STORAGE_KEY, "true");
+          syncLottie();
+        }).catch(() => {
+          // Blocked by browser — wait for first interaction
+          function onInteraction() {
+            document.removeEventListener("click", onInteraction, true);
+            document.removeEventListener("touchstart", onInteraction, true);
+            document.removeEventListener("keydown", onInteraction, true);
+            if (localStorage.getItem(STORAGE_KEY) === "false") return;
+            audio.volume = 0;
+            audio.play().then(() => {
+              fadeVolume(audio, TARGET_VOL, FADE_IN_MS);
+              localStorage.setItem(STORAGE_KEY, "true");
+              syncLottie();
+            }).catch(() => {});
+          }
+          document.addEventListener("click", onInteraction, { capture: true, once: false });
+          document.addEventListener("touchstart", onInteraction, { capture: true, once: false });
+          document.addEventListener("keydown", onInteraction, { capture: true, once: false });
+        });
+      }
+    }
+
+    if (localStorage.getItem(STORAGE_KEY) !== "false") {
+      startAudio();
     }
     setTimeout(syncLottie, SYNC_DELAY_MS);
 
