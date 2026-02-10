@@ -256,37 +256,49 @@ window.CBW = (() => {
     // Auto-play on load (unless user explicitly turned it off)
     // Browsers block autoplay without interaction — retry on first click/touch/key
     function startAudio() {
-      if (!audio.paused) return; // already playing
+      if (!audio.paused) { console.log("[Audio] already playing"); return; }
+      console.log("[Audio] startAudio() called");
       audio.volume = 0;
       const p = audio.play();
+      console.log("[Audio] play() returned:", typeof p);
       if (p && p.then) {
         p.then(() => {
+          console.log("[Audio] play() succeeded immediately");
           fadeVolume(audio, TARGET_VOL, FADE_IN_MS);
           localStorage.setItem(STORAGE_KEY, "true");
           syncLottie();
-        }).catch(() => {
+        }).catch((err) => {
+          console.log("[Audio] play() blocked, registering listeners. Error:", err?.message);
           // Blocked by browser — wait for first interaction
           function onInteraction() {
+            console.log("[Audio] onInteraction fired");
             document.removeEventListener("click", onInteraction, true);
             document.removeEventListener("touchstart", onInteraction, true);
             document.removeEventListener("keydown", onInteraction, true);
-            if (localStorage.getItem(STORAGE_KEY) === "false") return;
+            if (localStorage.getItem(STORAGE_KEY) === "false") { console.log("[Audio] skipped — user turned off"); return; }
             audio.volume = 0;
             audio.play().then(() => {
+              console.log("[Audio] play() succeeded after interaction");
               fadeVolume(audio, TARGET_VOL, FADE_IN_MS);
               localStorage.setItem(STORAGE_KEY, "true");
               syncLottie();
-            }).catch(() => {});
+            }).catch((e2) => { console.log("[Audio] play() failed after interaction:", e2?.message); });
           }
           document.addEventListener("click", onInteraction, { capture: true, once: false });
           document.addEventListener("touchstart", onInteraction, { capture: true, once: false });
           document.addEventListener("keydown", onInteraction, { capture: true, once: false });
         });
+      } else {
+        console.log("[Audio] play() did not return a promise");
       }
     }
 
-    if (localStorage.getItem(STORAGE_KEY) !== "false") {
+    const lsVal = localStorage.getItem(STORAGE_KEY);
+    console.log("[Audio] localStorage =", lsVal);
+    if (lsVal !== "false") {
       startAudio();
+    } else {
+      console.log("[Audio] skipped — localStorage is false");
     }
     setTimeout(syncLottie, SYNC_DELAY_MS);
 
