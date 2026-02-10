@@ -253,11 +253,12 @@ window.CBW = (() => {
     function lottieOnLoop() { const i = getLottieInstance(); if (!i) return; i.loop = true;  i.play(); setLottieOpacity(true); }
     function syncLottie()   { audio.paused ? lottieOff() : lottieOnLoop(); }
 
-    // Restore saved state
-    if (localStorage.getItem(STORAGE_KEY) === "true") {
+    // Auto-play on load (unless user explicitly turned it off)
+    if (localStorage.getItem(STORAGE_KEY) !== "false") {
       audio.volume = 0;
       audio.play().catch(() => {});
       fadeVolume(audio, TARGET_VOL, FADE_IN_MS);
+      localStorage.setItem(STORAGE_KEY, "true");
     }
     setTimeout(syncLottie, SYNC_DELAY_MS);
 
