@@ -146,8 +146,40 @@ window.CBW = (() => {
     btn.setAttribute("aria-expanded", "false");
 
     const arrow = btn.querySelector(".nav-toggle-icon");
-    const open  = () => { dd.classList.add("is-open");    btn.setAttribute("aria-expanded", "true");  panel.style.display = "flex"; if (arrow) arrow.style.transform = "rotate(180deg)"; };
-    const close = () => { dd.classList.remove("is-open"); btn.setAttribute("aria-expanded", "false"); panel.style.display = "none"; if (arrow) arrow.style.transform = "rotate(0deg)"; };
+    const ANIM_DURATION = 0.35;
+    const ANIM_EASE     = "power2.out";
+
+    const open = () => {
+      dd.classList.add("is-open");
+      btn.setAttribute("aria-expanded", "true");
+      panel.style.display = "flex";
+      if (window.gsap) {
+        window.gsap.killTweensOf(panel);
+        window.gsap.fromTo(panel,
+          { opacity: 0, y: -10 },
+          { opacity: 1, y: 0, duration: ANIM_DURATION, ease: ANIM_EASE }
+        );
+        if (arrow) window.gsap.to(arrow, { rotation: 180, duration: ANIM_DURATION, ease: ANIM_EASE });
+      } else {
+        if (arrow) arrow.style.transform = "rotate(180deg)";
+      }
+    };
+
+    const close = () => {
+      btn.setAttribute("aria-expanded", "false");
+      if (window.gsap) {
+        window.gsap.killTweensOf(panel);
+        window.gsap.to(panel, {
+          opacity: 0, y: -10, duration: ANIM_DURATION, ease: ANIM_EASE,
+          onComplete: () => { panel.style.display = "none"; dd.classList.remove("is-open"); }
+        });
+        if (arrow) window.gsap.to(arrow, { rotation: 0, duration: ANIM_DURATION, ease: ANIM_EASE });
+      } else {
+        panel.style.display = "none";
+        dd.classList.remove("is-open");
+        if (arrow) arrow.style.transform = "rotate(0deg)";
+      }
+    };
     const toggle = () => dd.classList.contains("is-open") ? close() : open();
 
     btn.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); toggle(); });
