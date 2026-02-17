@@ -145,8 +145,9 @@ window.CBW = (() => {
     btn.setAttribute("aria-controls", panel.id);
     btn.setAttribute("aria-expanded", "false");
 
-    const open  = () => { dd.classList.add("is-open");    btn.setAttribute("aria-expanded", "true");  panel.style.display = "flex"; };
-    const close = () => { dd.classList.remove("is-open"); btn.setAttribute("aria-expanded", "false"); panel.style.display = "none"; };
+    const arrow = btn.querySelector(".nav-toggle-icon");
+    const open  = () => { dd.classList.add("is-open");    btn.setAttribute("aria-expanded", "true");  panel.style.display = "flex"; if (arrow) arrow.style.transform = "rotate(180deg)"; };
+    const close = () => { dd.classList.remove("is-open"); btn.setAttribute("aria-expanded", "false"); panel.style.display = "none"; if (arrow) arrow.style.transform = "rotate(0deg)"; };
     const toggle = () => dd.classList.contains("is-open") ? close() : open();
 
     btn.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); toggle(); });
