@@ -2208,7 +2208,7 @@ html.mglb-lock,body.mglb-lock{overflow:hidden!important}`;
           // Scroll to anchor INSTANTLY while wipe still covers the page
           const scrollContainer = data?.next?.container || document;
           if (wantHash) {
-            const anchorOffset = window.CBW.remToPx(window.CBW.isMobileMode() ? 13 : 8);
+            const anchorOffset = window.CBW.remToPx(window.CBW.isMobileMode() ? 16 : 8);
             scrollToHash(wantHash, scrollContainer, { instant: true, offset: anchorOffset });
           }
 
