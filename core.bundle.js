@@ -384,14 +384,15 @@ window.CBW = (() => {
 
       const lbObs = new MutationObserver(() => {
         const backdrop = document.querySelector(".w-lightbox-backdrop");
-        const isOpen = !!backdrop;
+        // Open = backdrop exists and does NOT have w-lightbox-hide
+        const isOpen = !!backdrop && !backdrop.classList.contains("w-lightbox-hide");
 
         if (isOpen && !wasOpen) pauseForVideo();
         else if (!isOpen && wasOpen) resumeAfterVideo();
         wasOpen = isOpen;
       });
 
-      lbObs.observe(document.body, { childList: true, subtree: true });
+      lbObs.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["style", "class"] });
     }
 
     watchLightbox();
