@@ -2208,7 +2208,7 @@ html.mglb-lock,body.mglb-lock{overflow:hidden!important}`;
           // Scroll to anchor INSTANTLY while wipe still covers the page
           const scrollContainer = data?.next?.container || document;
           if (wantHash) {
-            scrollToHash(wantHash, scrollContainer, { instant: true });
+            scrollToHash(wantHash, scrollContainer, { instant: true, offset: window.CBW.remToPx(8) });
           }
 
           // Reveal wipe (page is already at the correct position)
