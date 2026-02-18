@@ -352,12 +352,12 @@ window.CBW = (() => {
     });
 
     // ── Video-aware audio pause/resume ──
-    // Pauses bg audio when user plays a video, resumes when video stops.
-    // Only acts if bg audio was playing before the video started.
+    // Pauses bg audio when lightbox opens, resumes when it closes.
+    // Only acts if bg audio was playing before.
     let _pausedByVideo = false;
 
     function pauseForVideo() {
-      if (audio.paused) return;          // already paused or off
+      if (audio.paused) return;
       _pausedByVideo = true;
       fadeVolume(audio, 0, FADE_OUT_MS);
       setTimeout(() => { if (_pausedByVideo) audio.pause(); }, PAUSE_AFTER_FADE);
@@ -365,7 +365,7 @@ window.CBW = (() => {
     }
 
     function resumeAfterVideo() {
-      if (!_pausedByVideo) return;       // wasn't paused by video
+      if (!_pausedByVideo) return;
       _pausedByVideo = false;
       audio.volume = 0;
       audio.play().then(() => {
@@ -374,43 +374,34 @@ window.CBW = (() => {
       }).catch(() => {});
     }
 
-    // Expose globally for external scripts (lightbox etc.)
+    // Expose globally for external scripts
     window.CBW.bgAudioPause  = pauseForVideo;
     window.CBW.bgAudioResume = resumeAfterVideo;
 
-    // 1) Native <video> elements — listen for play/pause/ended
-    document.addEventListener("play", (e) => {
-      if (e.target.tagName === "VIDEO" && e.target.id !== "bg-audio") pauseForVideo();
-    }, true);
-    document.addEventListener("pause", (e) => {
-      if (e.target.tagName === "VIDEO" && e.target.id !== "bg-audio") resumeAfterVideo();
-    }, true);
-    document.addEventListener("ended", (e) => {
-      if (e.target.tagName === "VIDEO" && e.target.id !== "bg-audio") resumeAfterVideo();
-    }, true);
+    // Lightbox (#mglb) — observe open/close
+    function watchLightbox() {
+      const mglbEl = document.getElementById("mglb");
+      if (!mglbEl) return;
 
-    // 2) YouTube iframes — listen for postMessage state changes
-    window.addEventListener("message", (e) => {
-      try {
-        const data = typeof e.data === "string" ? JSON.parse(e.data) : e.data;
-        // YouTube sends: { event: "onStateChange", info: 1 } (1=playing, 2=paused, 0=ended)
-        if (data?.event === "onStateChange" || data?.info !== undefined) {
-          const state = data?.info;
-          if (state === 1) pauseForVideo();
-          else if (state === 0 || state === 2) resumeAfterVideo();
-        }
-      } catch (_) {}
-    });
+      let wasVisible = false;
 
-    // 3) Lightbox (#mglb) — observe visibility changes
-    const mglbEl = document.getElementById("mglb");
-    if (mglbEl) {
       const lbObs = new MutationObserver(() => {
-        const visible = mglbEl.style.display !== "none" && mglbEl.offsetParent !== null;
-        if (visible) pauseForVideo();
-        else resumeAfterVideo();
+        const isVisible = mglbEl.classList.contains("is-visible") ||
+                          (mglbEl.style.display !== "none" && mglbEl.style.opacity !== "0" && mglbEl.offsetParent !== null);
+
+        if (isVisible && !wasVisible) pauseForVideo();
+        else if (!isVisible && wasVisible) resumeAfterVideo();
+        wasVisible = isVisible;
       });
+
       lbObs.observe(mglbEl, { attributes: true, attributeFilter: ["style", "class"] });
+    }
+
+    watchLightbox();
+
+    // Re-watch after Barba transitions (lightbox may be re-created)
+    if (window.barba?.hooks) {
+      window.barba.hooks.afterEnter(() => watchLightbox());
     }
 
     if (window.barba?.hooks) {
