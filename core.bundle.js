@@ -378,31 +378,23 @@ window.CBW = (() => {
     window.CBW.bgAudioPause  = pauseForVideo;
     window.CBW.bgAudioResume = resumeAfterVideo;
 
-    // Lightbox (#mglb) — observe open/close
+    // Lightbox — detect Webflow native lightbox (w-lightbox-backdrop)
     function watchLightbox() {
-      const mglbEl = document.getElementById("mglb");
-      if (!mglbEl) return;
-
-      let wasVisible = false;
+      let wasOpen = false;
 
       const lbObs = new MutationObserver(() => {
-        const isVisible = mglbEl.classList.contains("is-visible") ||
-                          (mglbEl.style.display !== "none" && mglbEl.style.opacity !== "0" && mglbEl.offsetParent !== null);
+        const backdrop = document.querySelector(".w-lightbox-backdrop");
+        const isOpen = !!backdrop;
 
-        if (isVisible && !wasVisible) pauseForVideo();
-        else if (!isVisible && wasVisible) resumeAfterVideo();
-        wasVisible = isVisible;
+        if (isOpen && !wasOpen) pauseForVideo();
+        else if (!isOpen && wasOpen) resumeAfterVideo();
+        wasOpen = isOpen;
       });
 
-      lbObs.observe(mglbEl, { attributes: true, attributeFilter: ["style", "class"] });
+      lbObs.observe(document.body, { childList: true, subtree: true });
     }
 
     watchLightbox();
-
-    // Re-watch after Barba transitions (lightbox may be re-created)
-    if (window.barba?.hooks) {
-      window.barba.hooks.afterEnter(() => watchLightbox());
-    }
 
     if (window.barba?.hooks) {
       window.barba.hooks.after(() => setTimeout(syncLottie, BARBA_SYNC_DELAY));
