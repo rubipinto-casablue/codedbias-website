@@ -384,7 +384,6 @@ window.CBW = (() => {
 
       const lbObs = new MutationObserver(() => {
         const backdrop = document.querySelector(".w-lightbox-backdrop");
-        // Open = backdrop exists and does NOT have w-lightbox-hide
         const isOpen = !!backdrop && !backdrop.classList.contains("w-lightbox-hide");
 
         if (isOpen && !wasOpen) pauseForVideo();
@@ -395,7 +394,26 @@ window.CBW = (() => {
       lbObs.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["style", "class"] });
     }
 
+    // Custom lightbox (#mglb) — toggles .is-open class
+    function watchMglb() {
+      const mglb = document.getElementById("mglb");
+      if (!mglb) return;
+
+      let wasOpen = false;
+
+      const mglbObs = new MutationObserver(() => {
+        const isOpen = mglb.classList.contains("is-open");
+
+        if (isOpen && !wasOpen) pauseForVideo();
+        else if (!isOpen && wasOpen) resumeAfterVideo();
+        wasOpen = isOpen;
+      });
+
+      mglbObs.observe(mglb, { attributes: true, attributeFilter: ["class"] });
+    }
+
     watchLightbox();
+    watchMglb();
 
     if (window.barba?.hooks) {
       window.barba.hooks.after(() => setTimeout(syncLottie, BARBA_SYNC_DELAY));
