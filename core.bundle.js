@@ -394,26 +394,25 @@ window.CBW = (() => {
       lbObs.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["style", "class"] });
     }
 
-    // Custom lightbox (#mglb) — toggles .is-open class
-    function watchMglb() {
+    // Custom lightbox (#mglb) — created dynamically, watch body for it
+    let _mglbWasOpen = false;
+
+    function checkMglb() {
       const mglb = document.getElementById("mglb");
-      if (!mglb) return;
+      const isOpen = !!mglb && mglb.classList.contains("is-open");
 
-      let wasOpen = false;
-
-      const mglbObs = new MutationObserver(() => {
-        const isOpen = mglb.classList.contains("is-open");
-
-        if (isOpen && !wasOpen) pauseForVideo();
-        else if (!isOpen && wasOpen) resumeAfterVideo();
-        wasOpen = isOpen;
-      });
-
-      mglbObs.observe(mglb, { attributes: true, attributeFilter: ["class"] });
+      if (isOpen && !_mglbWasOpen) pauseForVideo();
+      else if (!isOpen && _mglbWasOpen) resumeAfterVideo();
+      _mglbWasOpen = isOpen;
     }
 
+    // The body observer from watchLightbox already watches childList+subtree+attributes
+    // so we piggyback on it — but it only watches style/class attributeFilter.
+    // We need a separate observer for #mglb since it's created dynamically.
+    const mglbObs = new MutationObserver(checkMglb);
+    mglbObs.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
+
     watchLightbox();
-    watchMglb();
 
     if (window.barba?.hooks) {
       window.barba.hooks.after(() => setTimeout(syncLottie, BARBA_SYNC_DELAY));
