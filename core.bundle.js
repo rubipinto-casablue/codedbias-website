@@ -623,8 +623,9 @@ window.CBW = (() => {
     if (!window.gsap || !window.ScrollTrigger) return;
     window.gsap.registerPlugin(window.ScrollTrigger);
 
-    const { remToPx } = window.CBW;
-    const CREDITS_PAD_REM = 10;
+    const { remToPx, isMobileMode } = window.CBW;
+    const CREDITS_PAD_REM        = 10;
+    const CREDITS_PAD_MOBILE_REM = 20;
 
     function init(scope = document) {
       const root = scope && scope.querySelector ? scope : document;
@@ -640,7 +641,7 @@ window.CBW = (() => {
         }
         window.gsap.killTweensOf(layout);
 
-        const PAD = remToPx(CREDITS_PAD_REM);
+        const PAD = remToPx(isMobileMode() ? CREDITS_PAD_MOBILE_REM : CREDITS_PAD_REM);
 
         function computeStartEndY() {
           const mh = mask.clientHeight;
