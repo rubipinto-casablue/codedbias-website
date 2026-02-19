@@ -752,6 +752,19 @@ window.CBW = (() => {
   /* =========================================================
      5) DISABLE CURRENT FOOTER LINKS
   ========================================================= */
+  /* =========================================================
+     6b) FORCE EXTERNAL LINKS (.diy-logo-wrap)
+  ========================================================= */
+  function forceExternalLinks(scope = document) {
+    scope.querySelectorAll(".diy-logo-wrap a, a.diy-logo-wrap").forEach(a => {
+      a.setAttribute("target", "_blank");
+      a.setAttribute("rel", "noopener noreferrer");
+    });
+  }
+
+  /* =========================================================
+     7) DISABLE CURRENT FOOTER LINKS
+  ========================================================= */
   function initDisableCurrentFooterLinks() {
     const { normalizeWithSearch } = window.CBW;
     const NAV_SELECTOR = ".u-footer-link-wrap";
@@ -802,6 +815,7 @@ window.CBW = (() => {
     initGsapEngine();
     initAboutCreditsCrawl();
     initDisableCurrentFooterLinks();
+    forceExternalLinks();
 
     if (window.barba?.hooks) {
       window.barba.hooks.beforeLeave(() => closeAllTourDropdowns());
@@ -810,6 +824,7 @@ window.CBW = (() => {
         initTourDropdown(container);
         markCurrentTourStop(document);
         markCurrentTourStop(container);
+        forceExternalLinks(container);
         closeAllTourDropdowns();
       });
     }
