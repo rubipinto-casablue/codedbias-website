@@ -2268,6 +2268,13 @@ html.mglb-lock,body.mglb-lock{overflow:hidden!important}`;
       const ns = data?.next?.namespace;
       if (ns === "media")             setTimeout(() => requestAnimationFrame(() => window.MediaBoot?.(data.next.container)), 0);
       if (ns === "request-screening") setTimeout(() => requestAnimationFrame(() => window.RequestScreeningBoot?.(data.next.container)), 0);
+
+      // Restart background videos after Barba transition
+      const container = data?.next?.container || document;
+      container.querySelectorAll("video.wt-bg-video").forEach(function(video) {
+        video.muted = true;
+        video.play().catch(function() {});
+      });
     });
   }
 
