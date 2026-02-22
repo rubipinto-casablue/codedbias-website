@@ -1410,7 +1410,7 @@ window.CBW = (() => {
 #mglb .mglb__thumbs .swiper-slide{width:84px;height:58px;opacity:.45;transition:opacity .18s ease}
 #mglb .mglb__thumbs .swiper-slide-thumb-active{opacity:1}
 #mglb button[data-mglb-close],#mglb .mglb__prev,#mglb .mglb__next{width:44px;height:44px;border-radius:999px;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.22);color:#fff;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;backdrop-filter:blur(6px)}
-#mglb button[data-mglb-close]{position:absolute;top:22px;right:22px;z-index:10}
+#mglb button[data-mglb-close]{position:absolute;top:22px;right:22px;z-index:100}
 #mglb .mglb__prev{position:absolute;left:22px;top:50%;transform:translateY(-50%);z-index:10}
 #mglb .mglb__next{position:absolute;right:22px;top:50%;transform:translateY(-50%);z-index:10}
 @media(max-width:767px){#mglb button[data-mglb-close]{top:14px;right:14px}#mglb .mglb__prev{left:14px}#mglb .mglb__next{right:14px}}
@@ -1441,8 +1441,18 @@ html.mglb-lock,body.mglb-lock{overflow:hidden!important}`;
     if (!modal.__mglbBound) {
       modal.__mglbBound = true;
       modal.addEventListener("click", (e) => {
-        if (e.target?.closest?.("[data-mglb-close]") || e.target?.closest?.("[data-mglb-backdrop]")) closeModal();
+        var el = e.target?.nodeType === 3 ? e.target.parentElement : e.target;
+        if (el?.closest?.("[data-mglb-close]") || el?.closest?.("[data-mglb-backdrop]")) closeModal();
       });
+      // Direct handler on close button as fallback for Chrome
+      var closeBtn = modal.querySelector("[data-mglb-close]");
+      if (closeBtn) {
+        closeBtn.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          closeModal();
+        });
+      }
       document.addEventListener("keydown", (e) => {
         if (e.key === "Escape" && modal.classList.contains("is-open")) closeModal();
       });
