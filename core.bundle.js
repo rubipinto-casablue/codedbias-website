@@ -1421,13 +1421,12 @@ html.mglb-lock,body.mglb-lock{overflow:hidden!important}`;
   function ensureModalExists() {
     ensureModalStylesOnce();
     let modal = document.getElementById(MODAL_ID);
-    if (modal) return modal;
-
-    modal = document.createElement("div");
-    modal.id = MODAL_ID;
-    modal.className = "mglb";
-    modal.setAttribute("aria-hidden", "true");
-    modal.innerHTML = `
+    if (!modal) {
+      modal = document.createElement("div");
+      modal.id = MODAL_ID;
+      modal.className = "mglb";
+      modal.setAttribute("aria-hidden", "true");
+      modal.innerHTML = `
       <div class="mglb__backdrop" data-mglb-backdrop></div>
       <div class="mglb__panel">
         <button type="button" data-mglb-close aria-label="Close">✕</button>
@@ -1436,8 +1435,10 @@ html.mglb-lock,body.mglb-lock{overflow:hidden!important}`;
         <button type="button" class="mglb__prev" aria-label="Previous">‹</button>
         <button type="button" class="mglb__next" aria-label="Next">›</button>
       </div>`;
-    document.body.appendChild(modal);
+      document.body.appendChild(modal);
+    }
 
+    // Always bind if not yet bound (modal may have been found OR created)
     if (!modal.__mglbBound) {
       modal.__mglbBound = true;
       modal.addEventListener("click", (e) => {
