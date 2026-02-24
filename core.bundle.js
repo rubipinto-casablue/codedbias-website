@@ -2288,6 +2288,16 @@ html.mglb-lock,body.mglb-lock{overflow:hidden!important}`;
       // Restart background videos after Barba transition
       const container = data?.next?.container || document;
       container.querySelectorAll("video.wt-bg-video").forEach(function(video) {
+        // Set responsive src if using data attributes
+        var srcDesktop = video.dataset.srcDesktop;
+        var srcMobile = video.dataset.srcMobile;
+        if (srcDesktop || srcMobile) {
+          var src = (window.innerWidth >= 768 ? srcDesktop : srcMobile) || srcDesktop || srcMobile;
+          if (src && video.src !== src) {
+            video.src = src;
+            video.load();
+          }
+        }
         video.muted = true;
         video.play().catch(function() {});
       });
