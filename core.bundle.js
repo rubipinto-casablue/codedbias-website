@@ -131,15 +131,21 @@ window.CBW = (() => {
      1) TOUR DROPDOWN + CURRENT STOP HIGHLIGHT
   ========================================================= */
   function initTourDropdown(root = document) {
-    const dd = root.querySelector(".tour_dd");
-    if (!dd) return;
+    const dds = root.querySelectorAll(".tour_dd");
+    // Also check document if root is a container (nav may be outside Barba)
+    if (root !== document) {
+      document.querySelectorAll(".tour_dd").forEach(dd => {
+        if (!Array.from(dds).includes(dd)) Array.prototype.push.call(dds, dd);
+      });
+    }
 
-    const btn   = dd.querySelector(".tour_dd-toggle");
-    const panel = dd.querySelector(".tour_dd-panel");
-    if (!btn || !panel) return;
+    dds.forEach(dd => {
+      const btn   = dd.querySelector(".tour_dd-toggle");
+      const panel = dd.querySelector(".tour_dd-panel");
+      if (!btn || !panel) return;
 
-    if (dd.dataset.bound === "1") return;
-    dd.dataset.bound = "1";
+      if (dd.dataset.bound === "1") return;
+      dd.dataset.bound = "1";
 
     if (!panel.id) panel.id = "tour-dd-panel-" + Math.random().toString(16).slice(2);
     btn.setAttribute("aria-controls", panel.id);
@@ -189,6 +195,7 @@ window.CBW = (() => {
 
     dd.__open  = open;
     dd.__close = close;
+    }); // end forEach dd
   }
 
   function closeAllTourDropdowns() {
@@ -2299,6 +2306,13 @@ html.mglb-lock,body.mglb-lock{overflow:hidden!important}`;
           }
         }
         video.muted = true;
+        video.play().catch(function() {});
+      });
+
+      // Restart Webflow background videos (CMS video embeds)
+      container.querySelectorAll(".w-background-video video").forEach(function(video) {
+        video.muted = true;
+        video.load();
         video.play().catch(function() {});
       });
     });
